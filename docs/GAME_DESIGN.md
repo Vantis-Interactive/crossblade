@@ -4,7 +4,7 @@ Working title: **Crossblade** (D-001, pending owner approval).
 
 A fast, skill-based multiplayer PvP arena game with guns and knives, a deep weapon collection and persistent progression. It is free to play, and paid content never grants a combat advantage.
 
-Each section separates **Implemented (Phases 2–3)** from **Specified / planned**. Implemented numbers come from source files, which are cited. Planned numbers are the directive's values and become configuration when their phase is built.
+Each section separates **Implemented (Phases 2–4)** from **Specified / planned**. Implemented numbers come from source files, which are cited. Planned numbers are the directive's values and become configuration when their phase is built.
 
 ## 1. Pillars
 
@@ -24,33 +24,65 @@ Enter match -> Eliminate opponents -> Earn coins and XP -> Open crates -> Unlock
     +------------------------ Customize loadout <----------------------------+
 ```
 
-**Implemented (Phases 2–3):** the full loop.
+**Implemented (Phases 2–4):** the full loop, entered from the social hub.
 - Entering a match, eliminating opponents, scoreboard and statistics.
 - Coins and XP for eliminations, assists, streaks and match completion.
 - Crates bought with coins that unlock weapons, with duplicates converted to coins.
 - Loadout editing in the Collection window (ECONOMY.md, WEAPON_CATALOG.md).
 
-All of this awaits Studio verification. **Planned:** lobby destinations (armory and crate shop as physical places, LOB-02/03), challenges, achievements and the battle pass (Phase 7).
+- A social hub with an armory station, crate shop station, shooting range, tutorial and matchmaking portals (section 11).
+
+All of this awaits Studio verification. **Planned:** challenges, achievements and the battle pass (Phase 7).
 
 ## 3. Game modes
 
-Mode values live in `src/shared/Config/GameModes.luau`. `MatchService` refuses to start any mode with `Implemented = false`.
+Mode values live in `src/shared/Config/GameModes.luau`. Each mode has a `Kind` that selects its flow in the single generic `MatchService` (D-031), and `MatchService` refuses to start any mode with `Implemented = false`. Each place runs exactly one mode, chosen by its `PlaceConfig` (D-030; DEPLOYMENT.md).
 
-| Mode | Status | Players | Duration / format | Respawn | Spawn protection | Progression |
-|---|---|---|---|---|---|---|
-| Free-for-All | **Implemented** | 1–20 per server (`MinPlayers = 1`, `MaxPlayers = 20`) | 900 s rounds, 20 s intermission | 3 s | 5 s | Yes |
-| Team Deathmatch | Planned (MOD-02) | 5v5 and 8v8 (config: 10–16) | 600 s, first to 50 team eliminations | 5 s | 5 s | Yes |
-| Casual Duel 1v1 | Planned (MOD-01) | 2 | Best of five (`RoundsToWin = 3`) | Spectate until next round | 5 s | Yes |
-| Casual Duel 2v2–4v4 | Planned (MOD-01) | 4–8 | Best of seven (`RoundsToWin = 4`) | Spectate | 5 s | Yes |
-| Ranked Duel 1v1 / 2v2 | Planned (RNK-01 to RNK-07) | 2–4 | Best of nine (`RoundsToWin = 5`) | Spectate | 0 | Rating plus seasonal rewards |
-| Private Match | Planned (NET-06) | 1–16 | Host-configured | Host-configured | 5 s | **None**: no coins, XP, rating or challenge progress (`AwardsProgression = false`, tested) |
+| Mode | Kind | Status | Start / capacity | Format | Respawn | Spawn protection | Progression |
+|---|---|---|---|---|---|---|---|
+| Social Hub | Lobby | **Implemented** | 1 / 40 | No matches; weapons work on training dummies only | 2 s | 0 | **None** |
+| Free-for-All | FreeForAll | **Implemented** | 1 / 20 | 900 s, 20 s intermission | 3 s | 5 s | Yes |
+| Team Deathmatch | TeamDeathmatch | **Implemented** | 2 / 16 (D-032) | 10 s countdown, 600 s or first to 50 team eliminations, 20 s intermission | 5 s | 5 s | Yes |
+| Casual Duel 1v1 | Duel | **Implemented** | 2 / 2 | 5 s countdown, best of five (`RoundsToWin = 3`), 120 s rounds, 4 s between rounds, 15 s intermission | Spectate until next round | 5 s per round | Yes |
+| Casual Team Duel | Duel | **Implemented** | 2 × TeamSize / 8 | Best of seven (`RoundsToWin = 4`), 150 s rounds; TeamSize 2 by default, 3v3 / 4v4 via `PlaceConfig.TeamSize` | Spectate until next round | 5 s per round | Yes |
+| Ranked Duel 1v1 / 2v2 | Duel | Planned (RNK-01 to RNK-07) | 2 / 4 | Best of nine (`RoundsToWin = 5`) | Spectate | 0 | Rating plus seasonal rewards |
+| Private Match | FreeForAll | Planned (NET-06) | 1 / 16 | Host-configured | 3 s | 5 s | **None**: no coins, XP, rating or challenge progress (`AwardsProgression = false`, tested) |
+
+`MinPlayers` is the start threshold; capacity is the place's Roblox server size (D-032). Team Deathmatch starts with 2 players so it can be tested, and 5v5 / 8v8 places set a server size of 10 / 16.
+
+### Match phases (`src/server/Services/MatchService.luau`)
+
+| Phase | Meaning |
+|---|---|
+| Lobby | Hub only. Always on. Players can never damage each other (`CanDamage` is always false). |
+| Waiting | Fewer loaded players than the start threshold (Duel: `2 × TeamSize`). Players can move; combat is disabled. |
+| Countdown | Enough players; the match starts when the countdown ends. It falls back to Waiting if players leave. |
+| Active | Combat is allowed for participants. In duels only players still alive in the current round can fight. |
+| RoundEnd | Duel only: a 4 s pause between rounds. |
+| Intermission | Results and map vote; combat disabled; then the next match. |
+
+Combat permission is decided by `MatchService:IsCombatAllowed` (may this player use weapons) and `MatchService:CanDamage` (may this attacker hurt this victim: both allowed, victim alive, and opponents). In team modes, teammates are never opponents, so friendly fire is impossible.
 
 ### Free-for-All (implemented)
-- Every player competes independently. A round lasts 15 minutes, then shows a 20-second intermission with the top 10 results and combat disabled, then a new round starts and everyone respawns.
+- Every player competes independently. A match lasts 15 minutes, then a 20-second intermission shows the top results, runs the map vote and disables combat; then a new match starts and everyone respawns.
 - Ranking: eliminations (descending), then deaths (ascending), assists (descending), damage (descending), and earliest join (`src/server/Domain/MatchRules.luau`).
 - A win means first place with at least one elimination (D-016).
-- Rewards: each elimination pays coins and XP under the anti-farming rules. Each ranked entry gets match-completion XP at round end, and first place with at least one elimination gets bonus XP; no coin value is specified for that (D-029).
-- **Not yet implemented:** map voting between rotations (CMB-15/MOD-03), which needs at least two maps.
+- Rewards: each elimination pays coins and XP under the anti-farming rules. Every ranked entry gets match-completion XP, and first place with at least one elimination gets bonus XP; no coin value is specified for that (D-029).
+
+### Team Deathmatch (implemented)
+- Two teams, Alpha (`A`) and Bravo (`B`). At match start, loaded players are balanced alternately in join order (`Domain/Teams.Balance`). Late joiners go to the smaller team (`Teams.Pick`).
+- Each elimination by a team member adds one point to that team. The first team to 50 wins; at 600 s the higher score wins, and equal scores are a draw (`Teams.DeathmatchWinner`).
+- Players respawn after 5 s at their team's spawns when the map has team-tagged spawns.
+- Winners get the Team Deathmatch victory reward (ECONOMY.md §2). A draw records neither a win nor a loss.
+
+### Casual duels (implemented)
+- At match start, loaded players fill two teams of `TeamSize` in join order. Anyone beyond that spectates until the next match (D-034), and so does anyone who joins while a duel is running.
+- Each round, every participant respawns at their team's spawns with 5 s of protection. There are no respawns within a round. Eliminated players spectate surviving participants, teammates first, and cycle targets with FIRE / AIM (`SpectatorController`).
+- The last team with a living member wins the round. At the round time limit the team with more survivors wins, then the team with more total health; a full tie replays the round (D-033, `Domain/DuelRounds`).
+- A team whose players all leave forfeits the match. The first team to `RoundsToWin` round wins takes the match and the duel victory reward.
+
+### Map voting (implemented)
+At intermission, modes with `MapVote = true` offer up to 3 maps that support the mode, excluding the current map when others exist (D-035, `Domain/MapVote`). Players vote with the vote panel and may change their vote. The most votes wins and ties are broken randomly; with no votes, a random option wins. The new map loads at the end of intermission and everyone is respawned onto it.
 
 ## 4. Player mechanics
 
@@ -117,7 +149,7 @@ Full statistics are in WEAPON_CATALOG.md.
 - A death with no direct killer (reset or out of bounds) credits the top recent attacker as "finished off" (D-013).
 - **Spawn selection** favours spawns far from living opponents and penalizes spawns near recent eliminations, spawns used recently, and spawns in an opponent's line of sight. It picks randomly among near-best spawns (`Config/Spawning.luau`).
 - **Spawn protection:** 5 s in casual modes, shown with a visible force field. It ends immediately when the protected player fires, attacks or throws. Protected players take no damage.
-- **Planned:** spectator mode for duels (RNK-05) and an optional killcam (CMB-16, feasibility to be decided).
+- **Implemented:** duel spectating (section 3). **Planned:** ranked spectating features (RNK-05) and an optional killcam (CMB-16, feasibility to be decided).
 
 ## 9. Progression, economy and collection
 
@@ -144,3 +176,30 @@ The following require new owner authorization:
 - Graphic violence (blood, injuries, dismemberment)
 - Real-money item cash-outs
 - Unapproved external dependencies (D-004)
+
+## 11. Social hub and tutorial (implemented, Phase 4)
+
+The hub is its own place (`places/hub.project.json`, Lobby mode, map DEV-MAP-003; MAP_DESIGN.md §2.3). Every destination there is also reachable from the interface (UI_GUIDELINES.md §10).
+
+| Destination | How it works |
+|---|---|
+| Matchmaking portals | Four portals (Free-for-All, Team Deathmatch, Duel 1v1, Team Duel 2v2). A portal prompt or the PLAY menu sends a destination id; the server teleports the player to that place (`PortalService`). |
+| Armory | Station prompt opens the Collection window on the Armory tab. |
+| Crate shop | Station prompt opens the Collection window on the Crates tab. |
+| Shooting range | Six training dummies with 150 HP each that reset 2 s after being knocked down. They give no coins, XP or statistics (`TrainingService`). |
+| Training zone | One small health pack, one ammo pack and a knife station. |
+| Tutorial | Station prompt starts (or replays) the tutorial. |
+| Parkour course | Six platforms, each 2 studs higher than the previous one. |
+
+Players cannot damage each other anywhere in the hub. Hub practice never changes persistent statistics (D-040).
+
+**Planned hub features (not built):** VIP lounge and battle pass station (Phase 7), quest stations (Phase 7), leaderboards (Phase 6), weapon exhibitions, seasonal decorations and public announcements (Phase 12), and player profile inspection (Phase 6).
+
+### Tutorial (`Config/Tutorial.luau`, `TutorialService`, `Domain/TutorialProgress`)
+Twelve steps in order: movement, camera, weapon selection, aim and shoot, reload, knife attacks, knife throw and recovery, health and ammo pickups, coins, crate opening, loadout customization, matchmaking.
+
+- Steps the client can observe (movement, camera, weapon switching, the informational coins step, travel intent) are reported by the client. Combat and economy steps complete only from server-observed events: a firearm hit on a dummy, a reload, a knife hit on a dummy, a knife recovery, both a health and an ammo pickup, a crate opening, and a loadout change.
+- Before the pickups step the server drains 60 HP (never lethally) and empties firearm reserves, so both packs are useful.
+- **Reward (SPEC):** 500 coins and one free Basic Crate, granted once per account when the coins step completes (D-036). The crate arrives as a free crate token (D-037) so the next step can teach opening it.
+- First-time players start the tutorial automatically and **must complete it** before the hub's portals will send them to a match. Players who have completed it can replay it from the Training station and exit a replay at any time; replays never grant the reward again.
+
