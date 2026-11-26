@@ -13,6 +13,10 @@ return table.freeze({
 	FeatureFlags = require(script.FeatureFlags),
 	Rarity = require(script.Rarity),
 	Theme = require(script.Theme),
+	Collections = require(script.Collections),
+	Economy = require(script.Economy),
+	Progression = require(script.Progression),
+	Crates = require(script.Crates),
 	Archetypes = require(script.Weapons.Archetypes),
 	Catalog = require(script.Weapons.Catalog),
 })

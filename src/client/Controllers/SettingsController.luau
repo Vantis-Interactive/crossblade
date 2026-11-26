@@ -60,7 +60,7 @@ function SettingsController.SetOpen(_self: typeof(SettingsController), open: boo
 		return
 	end
 	panel.Visible = open
-	UIState.SetMenuOpen(open)
+	UIState.SetMenuOpen("Settings", open)
 	if open then
 		draft = table.clone(SettingsController.Current)
 		refresh()

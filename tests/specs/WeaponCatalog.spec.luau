@@ -28,13 +28,16 @@ describe("WeaponCatalog", function()
 
 	it("no combat module reads rarity", function()
 		local roots = { "src/shared/Combat", "src/server/Domain", "src/server/Services" }
+		-- Economy modules legitimately use rarity (crate odds, duplicate compensation). They never
+		-- feed combat statistics; every other module under these roots must not mention rarity.
+		local economyModules = { ["CrateOpening.luau"] = true, ["CrateService.luau"] = true }
 		local offenders = {}
 		local function scan(directory)
 			for _, entry in fs.readDir(directory) do
 				local path = directory .. "/" .. entry
 				if fs.isDir(path) then
 					scan(path)
-				elseif string.find(fs.readFile(path), "Rarity", 1, true) then
+				elseif not economyModules[entry] and string.find(fs.readFile(path), "Rarity", 1, true) then
 					table.insert(offenders, path)
 				end
 			end
@@ -99,5 +102,42 @@ describe("DamageCalculator", function()
 			total += DamageCalculator.Firearm(shotgun, 5, "Head")
 		end
 		expect(total).toBe(100)
+	end)
+end)
+
+describe("Catalog content (Phase 3)", function()
+	local Config = Runtime:Get("ReplicatedStorage/Shared/Config")
+	it("stays within the launch distribution limits per rarity and slot", function()
+		local WeaponCatalog = Runtime:Get("ReplicatedStorage/Shared/Weapons/WeaponCatalog")
+		local limits = {
+			Common = { 15, 10, 10 },
+			Uncommon = { 12, 8, 10 },
+			Rare = { 10, 7, 8 },
+			Epic = { 10, 6, 9 },
+			Legendary = { 7, 5, 6 },
+			Mythical = { 4, 3, 5 },
+			Celestial = { 2, 1, 2 },
+		}
+		local counts = {}
+		for id, entry in Config.Catalog.Entries do
+			local slot = WeaponCatalog.SlotFor(id)
+			local index = if slot == "Primary" then 1 elseif slot == "Secondary" then 2 else 3
+			counts[entry.Rarity] = counts[entry.Rarity] or { 0, 0, 0 }
+			counts[entry.Rarity][index] += 1
+		end
+		for rarity, limit in limits do
+			for index = 1, 3 do
+				expect((counts[rarity] or { 0, 0, 0 })[index]).toBeAtMost(limit[index])
+			end
+		end
+	end)
+	it("every weapon belongs to a configured collection and has a model profile", function()
+		local WeaponModels = Runtime:Get("ReplicatedStorage/Shared/Weapons/WeaponModels")
+		for id, entry in Config.Catalog.Entries do
+			expect(Config.Collections[entry.Collection]).never.toBeNil()
+			if WeaponModels.Profiles[entry.ModelProfile] == nil then
+				error(`{id}: unknown model profile {entry.ModelProfile}`)
+			end
+		end
 	end)
 end)

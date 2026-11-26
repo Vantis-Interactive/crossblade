@@ -13,7 +13,7 @@ local Theme = Config.Theme
 
 local NotificationController = {
 	Name = "NotificationController",
-	Dependencies = { "SettingsController" },
+	Dependencies = { "SettingsController", "InventoryController" },
 }
 
 local container: Frame
@@ -49,8 +49,43 @@ function NotificationController.Show(_self: typeof(NotificationController), text
 	end)
 end
 
-function NotificationController.Init(_self: typeof(NotificationController), registry: { [string]: any })
+local REASON_LABELS = {
+	GunElimination = "Elimination",
+	KnifeElimination = "Knife elimination",
+	FinishedElimination = "Finished off",
+	Headshot = "Headshot",
+	Assist = "Assist",
+	MatchCompleted = "Match completed",
+	FirstPlace = "First place",
+}
+
+local function describeReasons(reasons: { string }): string
+	local labels = {}
+	for _, reason in reasons do
+		local streak = string.match(reason, "^Streak(%d+)$")
+		table.insert(labels, if streak then `{streak}-streak` else (REASON_LABELS[reason] or reason))
+	end
+	return table.concat(labels, ", ")
+end
+
+function NotificationController.Init(self: typeof(NotificationController), registry: { [string]: any })
 	settings = registry.SettingsController
+	registry.InventoryController.Reward:Connect(function(payload)
+		local parts = {}
+		if payload.Coins > 0 then
+			table.insert(parts, `+{payload.Coins} coins`)
+		end
+		if payload.XP > 0 then
+			table.insert(parts, `+{payload.XP} XP`)
+		end
+		self:Show(`{table.concat(parts, "  ")}  ({describeReasons(payload.Reasons)})`, "Pickup")
+		if payload.LevelsGained > 0 then
+			self:Show(`LEVEL UP: LEVEL {payload.Level} (+{payload.LevelCoins} coins)`, "Info")
+		end
+		if payload.Capped then
+			self:Show("Hourly match reward limit reached; some rewards were not granted.", "Warning")
+		end
+	end)
 end
 
 function NotificationController.Start(self: typeof(NotificationController))

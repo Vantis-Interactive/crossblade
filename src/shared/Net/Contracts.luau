@@ -110,6 +110,32 @@ local ClientToServer: { [string]: ClientContract } = {
 		RateCapacity = 3,
 		RatePerSecond = 0.5,
 	},
+	SetLoadout = {
+		Kind = "Event",
+		Payload = Schema.Struct({
+			Primary = Schema.String(64),
+			Secondary = Schema.String(64),
+			Knife = Schema.String(64),
+		}),
+		RateCapacity = 4,
+		RatePerSecond = 1,
+	},
+	OpenCrate = {
+		Kind = "Function",
+		Payload = Schema.Struct({
+			CrateId = Schema.String(32),
+			-- Client-generated idempotency key (GUID). Retries reuse it; replays return the original result.
+			RequestId = Schema.String(64),
+		}),
+		RateCapacity = 3,
+		RatePerSecond = 1,
+	},
+	GetEconomy = {
+		Kind = "Function",
+		Payload = Schema.Struct({}),
+		RateCapacity = 4,
+		RatePerSecond = 1,
+	},
 	GetSnapshot = {
 		Kind = "Function",
 		Payload = Schema.Struct({}),
@@ -131,6 +157,8 @@ local ServerToClient: { [string]: ServerContract } = {
 	Announcement = { Kind = "Event" },
 	Notification = { Kind = "Event" },
 	SettingsApplied = { Kind = "Event" },
+	EconomyState = { Kind = "Event" }, -- wallet, level/XP, owned weapons, loadout, active crates
+	Reward = { Kind = "Event" }, -- coins/XP granted with reasons and level-ups
 }
 
 return table.freeze({

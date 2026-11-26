@@ -30,6 +30,8 @@ local HUDController = {
 		"CameraController",
 		"SnapshotController",
 		"EffectsController",
+		"InventoryController",
+		"ArmoryController",
 	},
 }
 
@@ -38,6 +40,8 @@ local settings: any
 local weapons: any
 local camera: any
 local effects: any
+local inventory: any
+local armory: any
 
 local gui: ScreenGui
 local ui: { [string]: any } = {}
@@ -332,6 +336,47 @@ local function buildPanels()
 	}, function()
 		settings:SetOpen(true)
 	end)
+	Build.Button({
+		Text = "COLLECTION",
+		Position = UDim2.fromOffset(212, 64),
+		Size = UDim2.fromOffset(120, 32),
+		Parent = gui,
+	}, function()
+		armory:SetOpen(true)
+	end)
+
+	-- Wallet and level (top-left, below the buttons)
+	local wallet = Build.Panel(
+		{ Position = UDim2.fromOffset(16, 102), Size = UDim2.fromOffset(316, 44), Parent = gui },
+		{ Build.Padding(6) }
+	)
+	ui.Coins = Build.Label({
+		Text = "◈ -",
+		Font = Theme.Fonts.Heading,
+		Size = UDim2.new(0.45, 0, 1, 0),
+		Parent = wallet,
+	})
+	ui.Level = Build.Label({
+		Text = "LV -",
+		Font = Theme.Fonts.Heading,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.fromScale(0.45, 0),
+		Size = UDim2.new(0.55, 0, 0, 16),
+		Parent = wallet,
+	})
+	local xpTrack = Build.New("Frame", {
+		BackgroundColor3 = C.Background,
+		BorderSizePixel = 0,
+		Position = UDim2.new(0.45, 0, 0, 22),
+		Size = UDim2.new(0.55, 0, 0, 8),
+		Parent = wallet,
+	}, { Build.Corner() })
+	ui.XPFill = Build.New("Frame", {
+		BackgroundColor3 = C.AccentBright,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(0, 1),
+		Parent = xpTrack,
+	}, { Build.Corner() })
 
 	-- Kill feed (top-right)
 	ui.KillFeed = Build.New("Frame", {
@@ -689,6 +734,19 @@ function HUDController.Init(_self: typeof(HUDController), registry: { [string]: 
 	weapons = registry.WeaponController
 	camera = registry.CameraController
 	effects = registry.EffectsController
+	inventory = registry.InventoryController
+	armory = registry.ArmoryController
+	inventory.Changed:Connect(function(state)
+		if not built then
+			return
+		end
+		ui.Coins.Text = `◈ {state.Coins}`
+		ui.Level.Text = if state.XPForNext > 0
+			then `LV {state.Level}   {state.XPIntoLevel}/{state.XPForNext} XP`
+			else `LV {state.Level}   MAX`
+		ui.XPFill.Size =
+			UDim2.fromScale(if state.XPForNext > 0 then state.XPIntoLevel / state.XPForNext else 1, 1)
+	end)
 
 	registry.SnapshotController.Loaded:Connect(function(snapshot)
 		-- Start functions run concurrently; the snapshot can arrive before the HUD is built.
@@ -746,6 +804,9 @@ function HUDController.Start(_self: typeof(HUDController))
 	buildPanels()
 	built = true
 	updateLoadout()
+	if inventory.State then
+		inventory.Changed:Fire(inventory.State)
+	end
 	if pendingSnapshot then
 		applySnapshot(pendingSnapshot)
 		pendingSnapshot = nil

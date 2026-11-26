@@ -15,6 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Logger = require(ReplicatedStorage.Shared.Util.Logger)
+local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local MatchRules = require(script.Parent.Parent.Domain.MatchRules)
 
 local log = Logger.new("Match")
@@ -33,6 +34,10 @@ local MatchService = {
 		"WeaponService",
 	},
 	ModeId = "FreeForAll",
+	-- Fired after an elimination has been scored: (event, killerStreak, roundId, deathSequence).
+	EliminationScored = Signal.new() :: Signal.Signal<any, number, number, number>,
+	-- Fired when a round ends: (ranked entries, roundId).
+	RoundFinished = Signal.new() :: Signal.Signal<{ MatchRules.Entry }, number>,
 }
 
 local mode = Config.GameModes[MatchService.ModeId]
@@ -43,6 +48,7 @@ local entries: { [number]: MatchRules.Entry } = {}
 local joinCounter = 0
 local scoreboardDirty = false
 local lastResults: { any } = {}
+local deathSequence = 0
 
 local net: any
 local playerData: any
@@ -167,6 +173,13 @@ local function onEliminated(event: any)
 			{ Kind = "Killstreak", UserId = killer.UserId, Name = killer.DisplayName, Streak = streak }
 		)
 	end
+	deathSequence += 1
+	MatchService.EliminationScored:Fire(
+		event,
+		if killerEntry then killerEntry.Streak else 0,
+		roundId,
+		deathSequence
+	)
 
 	playerData:Update(victim, function(data)
 		data.Stats.Deaths += 1
@@ -220,6 +233,7 @@ local function finishRound()
 		end
 	end
 	endsAt = net.Now() + mode.IntermissionSeconds
+	MatchService.RoundFinished:Fire(ranked, roundId)
 	log:Info("round finished", { round = roundId, players = #ranked })
 	net.FireAll("MatchState", matchState())
 end
@@ -240,6 +254,10 @@ local function beginRound()
 	end
 	log:Info("round started", { round = roundId, mode = mode.Id })
 	net.FireAll("MatchState", matchState())
+end
+
+function MatchService.Mode(_self: typeof(MatchService))
+	return mode
 end
 
 function MatchService.IsCombatAllowed(_self: typeof(MatchService), player: Player): boolean

@@ -48,6 +48,7 @@ local Input: { [string]: Binding } = {
 	},
 	Scoreboard = { Keyboard = { Enum.KeyCode.Tab }, Gamepad = { Enum.KeyCode.DPadLeft } },
 	Settings = { Keyboard = { Enum.KeyCode.P }, Gamepad = { Enum.KeyCode.ButtonSelect } },
+	Collection = { Keyboard = { Enum.KeyCode.I }, Gamepad = { Enum.KeyCode.DPadUp } },
 }
 
 return table.freeze(Input)

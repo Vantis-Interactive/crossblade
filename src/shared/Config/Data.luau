@@ -6,6 +6,9 @@ local Data = {
 	KeyPrefix = "player_",
 
 	AutosaveIntervalSeconds = 60,
+	-- Economy changes (crate opens, rewards) request a save this soon instead of waiting for autosave.
+	-- At least 6 s keeps within the DataStore per-key write throttle.
+	PrioritySaveDelaySeconds = 6,
 	-- A session lock older than this is considered abandoned (crashed server) and may be taken over.
 	-- Must comfortably exceed AutosaveIntervalSeconds, since autosave refreshes the lock.
 	SessionLockTimeoutSeconds = 300,

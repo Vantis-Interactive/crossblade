@@ -18,7 +18,7 @@ local WeaponCatalog = require(ReplicatedStorage.Shared.Weapons.WeaponCatalog)
 
 local Schema = {}
 
-Schema.CurrentVersion = 1
+Schema.CurrentVersion = 2
 
 export type PlayerData = { [string]: any }
 
@@ -35,7 +35,7 @@ function Schema.Default(userId: number, now: number): PlayerData
 		UpdatedAt = now,
 		-- Earned and purchased currency are accounted separately (spec §13), shown as one wallet.
 		Currency = { Earned = 0, Purchased = 0 },
-		Progression = { LifetimeXP = 0, Level = 1, Prestige = 0 },
+		Progression = { LifetimeXP = 0, Level = 1, Prestige = 0, HighestRewardedLevel = 1 },
 		Inventory = { Weapons = weapons },
 		Customization = {},
 		Loadouts = {
@@ -81,12 +81,22 @@ function Schema.Default(userId: number, now: number): PlayerData
 		LoginRewards = { LastClaimDay = 0, Streak = 0 },
 		Moderation = { Warnings = 0 },
 		ProcessedTransactions = {},
+		-- v2: crate results (bounded) for idempotent replies, and persisted hourly reward counters.
+		CrateHistory = {},
+		Economy = { HourStart = 0, HourCoins = 0, HourXP = 0 },
 	}
 end
 
 -- Migration table: Migrations[n] upgrades a version-n record to version n+1.
--- Example for a future change:  Migrations[1] = function(data) data.NewField = ...; return data end
-Schema.Migrations = {} :: { [number]: (PlayerData) -> PlayerData }
+Schema.Migrations = {
+	-- v1 -> v2 (Phase 3). Level rewards are paid for levels above HighestRewardedLevel, so existing
+	-- players must start at their current level or they would be paid retroactively. The other v2
+	-- fields have safe defaults and are added by Reconcile.
+	[1] = function(data: PlayerData): PlayerData
+		data.Progression.HighestRewardedLevel = data.Progression.Level
+		return data
+	end,
+} :: { [number]: (PlayerData) -> PlayerData }
 
 export type MigrateResult = { Ok: boolean, Data: PlayerData?, Reason: string?, Migrated: boolean }
 

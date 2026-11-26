@@ -54,6 +54,7 @@ local store: ProfileStore.ProfileStore
 local net: any
 local audit: any
 local shuttingDown = false
+local saveScheduled: { [Player]: boolean } = {}
 
 -- Explicit Studio-only, non-persistent adapter. Never constructed outside Studio.
 local function studioEphemeralAdapter()
@@ -147,6 +148,7 @@ local function release(player: Player)
 	end
 	PlayerDataService.ProfileReleasing:Fire(player, profile)
 	profiles[player] = nil
+	saveScheduled[player] = nil
 	local result, err = store:Save(profile, true)
 	if result ~= "Saved" then
 		log:Error("final save failed", { player = player.UserId, result = result, error = err })
@@ -233,6 +235,28 @@ function PlayerDataService.GetProfile(_self: typeof(PlayerDataService), player: 
 	return nil
 end
 
+-- Schedules a save soon (debounced). Used after economy mutations so they persist promptly.
+function PlayerDataService.RequestSave(_self: typeof(PlayerDataService), player: Player)
+	if saveScheduled[player] or shuttingDown then
+		return
+	end
+	saveScheduled[player] = true
+	task.delay(Config.Data.PrioritySaveDelaySeconds, function()
+		saveScheduled[player] = nil
+		local profile = profiles[player]
+		if profile == nil or not profile.Active then
+			return
+		end
+		local result, err = store:Save(profile, false)
+		if result == "LockLost" then
+			profiles[player] = nil
+			kick(player, "LockLost")
+		elseif result == "StoreError" then
+			log:Warn("priority save failed; autosave will retry", { player = player.UserId, error = err })
+		end
+	end)
+end
+
 -- Mutates a loaded profile. Returns false if the profile is not loaded (never creates data).
 function PlayerDataService.Update(
 	self: typeof(PlayerDataService),
@@ -257,10 +281,10 @@ function PlayerDataService.ApplyTransaction(
 	player: Player,
 	transactionId: string,
 	mutate: (draft: { [string]: any }) -> ()
-): Transactions.Outcome
+): (Transactions.Outcome, string?)
 	local profile = self:GetProfile(player)
 	if profile == nil then
-		return "Failed"
+		return "Failed", "NotLoaded"
 	end
 	local outcome, err = Transactions.Apply(
 		profile.Data,
@@ -272,7 +296,7 @@ function PlayerDataService.ApplyTransaction(
 	if outcome == "Failed" then
 		log:Warn("transaction failed", { player = player.UserId, tx = transactionId, error = err })
 	end
-	return outcome
+	return outcome, err
 end
 
 return PlayerDataService

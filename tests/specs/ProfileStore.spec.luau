@@ -159,7 +159,9 @@ describe("ProfileStore", function()
 
 	it("does not write when a migration fails", function()
 		local adapter = MemoryDataStore.new()
-		adapter.Data.player_7 = existingRecord(7, 300, nil)
+		local record = existingRecord(7, 300, nil)
+		record.Data.SchemaVersion = 1
+		adapter.Data.player_7 = record
 		local migrations = {
 			[1] = function()
 				error("boom")
