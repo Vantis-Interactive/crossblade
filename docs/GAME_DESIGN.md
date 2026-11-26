@@ -4,7 +4,7 @@ Working title: **Crossblade** (D-001, pending owner approval).
 
 A fast, skill-based multiplayer PvP arena game with guns and knives, a deep weapon collection and persistent progression. It is free to play, and paid content never grants a combat advantage.
 
-Each section separates **Implemented (Phase 2)** from **Specified / planned**. Implemented numbers come from source files, which are cited. Planned numbers are the directive's values and become configuration when their phase is built.
+Each section separates **Implemented (Phases 2–3)** from **Specified / planned**. Implemented numbers come from source files, which are cited. Planned numbers are the directive's values and become configuration when their phase is built.
 
 ## 1. Pillars
 
@@ -24,8 +24,13 @@ Enter match -> Eliminate opponents -> Earn coins and XP -> Open crates -> Unlock
     +------------------------ Customize loadout <----------------------------+
 ```
 
-**Implemented (Phase 2):** entering a match, eliminating opponents, scoreboard and statistics.
-**Planned:** coins, XP, crates, unlocks and loadout editing (Phase 3: ECO-01 to ECO-05).
+**Implemented (Phases 2–3):** the full loop.
+- Entering a match, eliminating opponents, scoreboard and statistics.
+- Coins and XP for eliminations, assists, streaks and match completion.
+- Crates bought with coins that unlock weapons, with duplicates converted to coins.
+- Loadout editing in the Collection window (ECONOMY.md, WEAPON_CATALOG.md).
+
+All of this awaits Studio verification. **Planned:** lobby destinations (armory and crate shop as physical places, LOB-02/03), challenges, achievements and the battle pass (Phase 7).
 
 ## 3. Game modes
 
@@ -44,7 +49,8 @@ Mode values live in `src/shared/Config/GameModes.luau`. `MatchService` refuses t
 - Every player competes independently. A round lasts 15 minutes, then shows a 20-second intermission with the top 10 results and combat disabled, then a new round starts and everyone respawns.
 - Ranking: eliminations (descending), then deaths (ascending), assists (descending), damage (descending), and earliest join (`src/server/Domain/MatchRules.luau`).
 - A win means first place with at least one elimination (D-016).
-- **Not yet implemented:** map voting between rotations (CMB-15/MOD-03), which needs at least two maps, and coin/XP rewards (Phase 3).
+- Rewards: each elimination pays coins and XP under the anti-farming rules. Each ranked entry gets match-completion XP at round end, and first place with at least one elimination gets bonus XP; no coin value is specified for that (D-029).
+- **Not yet implemented:** map voting between rotations (CMB-15/MOD-03), which needs at least two maps.
 
 ## 4. Player mechanics
 
@@ -83,7 +89,7 @@ Pickups are not consumed by players at full health or by dead players. The picku
 Each player carries a **primary firearm, a secondary firearm and one knife**, and can switch at any time. Switching cancels an in-progress reload and applies the weapon's equip time.
 
 - **Implemented:** the starter loadout (Vanguard AR, Warden P9, Ranger Combat Knife). The server resolves the weapon in each slot from the player's saved preset **and** owned inventory. Unowned, unknown or wrong-slot weapons are replaced with the starter weapon and audited (`src/server/Domain/Loadout.luau`, tested). Clients only ever send slot names.
-- **Planned:** loadout editing, presets and the armory (ECO-03, LOB-02).
+- **Implemented (Phase 3):** editing the active preset in the Collection window's Armory tab. `InventoryService` validates ownership and slot; the change applies on the next spawn. **Planned:** multiple presets (purchasable extra presets in MONETIZATION.md) and the lobby armory (LOB-02).
 - **Ammunition:** limited magazine plus reserve, with manual reload (auto-reload when the magazine empties). Ammo pickups add one magazine per firearm, capped at the maximum reserve, and respawn after 15 s (D-015). Respawning restores the full starting loadout.
 
 Full statistics are in WEAPON_CATALOG.md.
@@ -113,9 +119,16 @@ Full statistics are in WEAPON_CATALOG.md.
 - **Spawn protection:** 5 s in casual modes, shown with a visible force field. It ends immediately when the protected player fires, attacks or throws. Protected players take no damage.
 - **Planned:** spectator mode for duels (RNK-05) and an optional killcam (CMB-16, feasibility to be decided).
 
-## 9. Progression, economy and collection (planned)
+## 9. Progression, economy and collection
 
-Six independent progression systems: player levels (prestige at 100), prestige, competitive divisions, achievements, titles and weapon mastery (Phase 3/6/7: ECO-05, PRG-01 to PRG-03, RNK-01/02). Economy and crates are in ECONOMY.md; monetization is in MONETIZATION.md. Data schema v1 already has fields for all of them (DATA_SCHEMA.md), so these features can be added without a breaking migration.
+**Implemented (Phase 3):**
+- **Coins:** earned and purchased balances kept separately, shown as one wallet.
+- **Match rewards:** see ECONOMY.md §2.
+- **Levels 1–100:** XP from `1000 + 100 × (level − 1)` per level; 100 coins per level plus 400 at every 10th level, each paid once (D-022).
+- **Crates:** 13 crates with exact per-item odds shown before purchase; duplicates converted to coins.
+- **Collection:** 40 weapons (3 starters plus 37 collectibles) across 8 collections (WEAPON_CATALOG.md).
+
+**Planned:** prestige (at level 100), competitive divisions, achievements, titles and weapon mastery (PRG-01 to PRG-03, RNK-01/02). Schema v2 already has fields for them (DATA_SCHEMA.md). Monetization is in MONETIZATION.md.
 
 ## 10. Explicit exclusions (spec §29)
 

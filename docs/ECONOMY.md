@@ -1,85 +1,99 @@
 # Economy
 
-**Status: planned (Phase 3: ECO-01 to ECO-07).** Only the transaction foundation is implemented:
-- `src/server/Data/Transactions.luau`, tested in `tests/specs/Transactions.spec.luau`
-- the currency fields in data schema v1 (`Currency.Earned`, `Currency.Purchased`)
+**Status: implemented in Phase 3 (ECO-01 to ECO-06; ECO-07 partial).** The Studio and multiplayer verification in TEST_PLAN.md is still pending. The rules are pure modules covered by `tests/specs/Economy.spec.luau`. The services are Roblox glue and have not yet run in Studio.
 
-All values below are the specification's design values. They will move into `src/shared/Config` when EconomyService is built, and nothing in gameplay code will hardcode them.
+| Concern | Implementation |
+|---|---|
+| Configuration | `src/shared/Config/Economy.luau`, `Progression.luau`, `Crates.luau` |
+| Wallet rules | `src/shared/Economy/Wallet.luau` |
+| Crate distributions | `src/shared/Economy/CrateOdds.luau` (shared by client disclosure and server selection) |
+| Level arithmetic | `src/shared/Economy/Leveling.luau` |
+| Crate opening (atomic) | `src/server/Domain/CrateOpening.luau` |
+| Reward rules and anti-farming | `src/server/Domain/RewardPolicy.luau` |
+| Paid-random eligibility | `src/server/Domain/PaidRandomPolicy.luau`, `Services/PolicyComplianceService.luau` |
+| Services | `EconomyService`, `CrateService`, `InventoryService`, `ProgressionService` |
+
+In the tables below, **SPEC** values come from the master directive. **PROPOSED** values were not specified and are recorded in DECISIONS.md.
 
 ## 1. Currency accounting
 
 | Balance | Source | Notes |
 |---|---|---|
-| `Currency.Earned` | Gameplay rewards, duplicate compensation, challenges, login rewards | Never purchasable |
-| `Currency.Purchased` | Robux developer products only (MONETIZATION.md) | Credited only through `ProcessReceipt` |
+| `Currency.Earned` | Match rewards, level rewards, duplicate compensation | Credited only through `Wallet.CreditEarned`, which rejects negative or fractional amounts |
+| `Currency.Purchased` | Robux developer products (MONETIZATION.md) | **No product exists yet.** The balance is always 0 until Phase 7 |
 
-- Players see a single wallet (Earned + Purchased).
-- The two balances are kept separate so purchases can be reconciled, refunds reversed, and paid-random-item rules applied (§5.4).
-- **Spend order (planned):** earned coins first, then purchased.
-- Every mutation runs through `Transactions.Apply(data, transactionId, ...)` (implemented):
-  - It mutates a deep copy and commits only if the whole mutation succeeds, so a debit can never be applied without its grant (tested).
-  - It records the transaction id, so replaying the same id is a no-op (tested).
-  - The processed-id list is bounded (`Config.Data.Limits.ProcessedTransactions = 200`) and evicts the oldest ids.
-  - Durability comes from the session lock: one server owns a profile, and processed ids are saved in the same record as the balances.
+- The HUD shows one total (`Wallet.Total`). The Collection window shows both balances.
+- **Spend order (D-026):** `Wallet.Debit` always spends earned coins first. Purchased coins are only used when the caller passes `allowPurchased = true`. For crates that flag comes from PolicyService (§5.4).
+- **Atomicity:** every mutation runs through `PlayerDataService:ApplyTransaction(player, id, mutate)`, which wraps `Data/Transactions.Apply`. It mutates a deep copy, commits only if the whole function succeeds, records the id so a replay is a no-op, and returns `(outcome, err)`.
+- **Durability:** economy mutations call `PlayerDataService:RequestSave`, a debounced save 6 s later (`Config.Data.PrioritySaveDelaySeconds`). The regular autosave still runs.
 
-## 2. Gameplay rewards (spec §13; planned ECO-02)
+### Transaction ids
 
-| Action | Coins |
-|---|---:|
-| Gun elimination | 25 |
-| Knife elimination (melee or thrown) | 35 |
-| Headshot elimination bonus | +10 |
-| Assist | 10 |
-| Five-elimination streak | 50 |
-| Duel victory | 100 |
-| Team Deathmatch victory | 150 |
+| Prefix | Format | Created by |
+|---|---|---|
+| `elim:` | `elim:{serverTag}:{roundId}:{deathSequence}:{userId}` | `EconomyService` on `MatchService.EliminationScored` |
+| `round:` | `round:{serverTag}:{roundId}:{userId}` | `EconomyService` on `MatchService.RoundFinished` |
+| `crate:` | `crate:{RequestId}` (client GUID) | `CrateService` (D-027) |
 
-Other sources (planned): daily, weekly and seasonal challenges, achievements, login rewards, level-ups and events. All reward limits will be configurable.
+`serverTag` is `game.JobId`, or `studio{os.time()}` in Studio. Re-processing the same event therefore cannot pay twice, and ids from different servers never collide.
 
-**Open design question (ECO-06):** whether a `Finished` elimination (D-013) pays the full elimination reward.
+## 2. Match rewards (implemented)
 
-## 3. Crates (spec §14; planned ECO-04)
+Each elimination becomes one grant per beneficiary (`RewardPolicy.Evaluate`), applied as a single transaction by `EconomyService:Grant`. One transaction covers the hourly cap check, the coin credit, XP, level rewards and the `Stats.CoinsEarned` update.
 
-| Category | Crate | Price (coins) |
-|---|---|---:|
-| Rarity | Basic | 250 |
-| Rarity | Premium | 750 |
-| Rarity | Legendary | 2,500 |
-| Rarity | Mythical | 5,000 |
-| Weapon type | Knife | 500 |
-| Weapon type | Pistol | 500 |
-| Weapon type | Rifle | 750 |
-| Weapon type | Shotgun | 750 |
-| Weapon type | Sniper | 1,000 |
-| Themed | Inferno | 1,500 |
-| Themed | Arctic | 1,500 |
-| Themed | Cyberpunk | 2,000 |
-| Themed | Galaxy | 2,500 |
-| Seasonal | Halloween, Winter, Anniversary, event | Set per season |
+| Action | Coins | Source | XP | Source |
+|---|---:|---|---:|---|
+| Gun elimination | 25 | SPEC | 100 | PROPOSED (D-021) |
+| Knife elimination (melee or thrown) | 35 | SPEC | 100 | PROPOSED |
+| Headshot elimination bonus | +10 | SPEC | +20 | PROPOSED |
+| Assist | 10 | SPEC | 40 | PROPOSED |
+| Streak bonus at 5, 10, 15, … | +50 | SPEC ("five-elimination streak") | 0 | PROPOSED |
+| "Finished off" elimination (D-013) | 10 | PROPOSED (D-025) | 40 | PROPOSED (D-025) |
+| Match completed (every ranked entry) | 0 | none | 150 | PROPOSED |
+| Free-for-All first place (≥1 elimination) | 0 | PROPOSED (D-029) | +250 | PROPOSED |
+| Duel victory | 100 | SPEC (configured; duels not built) | none | none |
+| Team Deathmatch victory | 150 | SPEC (configured; TDM not built) | none | none |
 
-### Standard rarity distribution
+Self-eliminations and environmental deaths with no attacker pay nothing. A streak bonus is paid when the killer's streak, after the kill, is a multiple of `Rewards.Streak.Every = 5`.
 
-| Rarity | Probability |
-|---|---:|
-| Common | 40.0% |
-| Uncommon | 25.0% |
-| Rare | 18.0% |
-| Epic | 10.0% |
-| Legendary | 5.0% |
-| Mythical | 1.8% |
-| Celestial | 0.2% |
-| **Total** | **100.0%** |
+Planned sources not built yet: challenges, achievements, login rewards and events (Phase 7).
 
-### Rules
-- Each crate has its own **explicitly configured** reward pool with a probability per item. The disclosed probabilities must be exactly the ones the server's selection algorithm uses. They are generated from one config and never duplicated by hand.
-- Rewards are selected on the server only. The opening animation reveals a result the server has already decided and committed; it never decides anything itself.
-- A reduced-animation option is required. No near-miss animations and no deceptive odds.
-- Before purchase, show every possible final reward and its individual numerical probability.
-- A crate purchase is one transaction: debit, reward grant and any duplicate compensation commit together or not at all.
+## 3. Levels (implemented; PROPOSED values, D-022)
 
-### Duplicate compensation (automatic, in coins)
+`Config.Progression`; arithmetic in `Shared/Economy/Leveling.luau`.
 
-| Rarity | Compensation |
+- XP needed to go from level L to L+1 is `1000 + 100 × (L − 1)`. That makes 1,000 XP for level 2 and 1,100 for level 3. Reaching the maximum level of 100, which is also the prestige threshold, takes 584,100 XP in total.
+- Each level reached pays 100 coins, with a 400-coin bonus at every 10th level (500 total at levels 10, 20, …).
+- Level rewards are paid only for levels above `Progression.HighestRewardedLevel`, so they are paid exactly once. That stays true after a future prestige resets `Level`.
+- Level rewards are credited inside the same transaction as the XP (`ProgressionService:ApplyXP`) and are **not** subject to the hourly cap.
+
+## 4. Crates (implemented)
+
+Configuration lives in `src/shared/Config/Crates.luau`.
+
+**Pool:** every non-starter catalog weapon that matches the crate's filter and whose rarity has odds above zero. **Per-item probability:** the rarity's odds divided by the number of pool items of that rarity (`CrateOdds.Build`). Items are ordered by rarity rank, then id. The same ordered distribution drives the disclosure list and the server's cumulative selection (`CrateOdds.Select` with one `Random:NextNumber()` roll in [0, 1)).
+
+| Crate | Category | Price (SPEC) | Filter | Odds (%) | Odds source | Pool items |
+|---|---|---:|---|---|---|---:|
+| Basic | Rarity | 250 | all | C40 U25 R18 E10 L5 M1.8 X0.2 | SPEC standard | 37 |
+| Premium | Rarity | 750 | all | U40 R30 E18 L8 M3.5 X0.5 | PROPOSED (D-023) | 31 |
+| Legendary | Rarity | 2,500 | all | L85 M13 X2 | PROPOSED | 14 |
+| Mythical | Rarity | 5,000 | all | M92 X8 | PROPOSED | 9 |
+| Knife | Weapon | 500 | Slot = Knife | standard | SPEC | 7 |
+| Pistol | Weapon | 500 | Slot = Secondary | standard | SPEC | 7 |
+| Rifle | Weapon | 750 | AssaultRifle | standard | SPEC | 7 |
+| Shotgun | Weapon | 750 | Shotgun | C40 U25 R18 E10 L5 M2 | PROPOSED (no Celestial shotgun exists) | 6 |
+| Sniper | Weapon | 1,000 | SniperRifle | standard | SPEC | 7 |
+| Inferno | Themed | 1,500 | Collection = Inferno | R60 E28 L10 M2 | PROPOSED | 5 |
+| Arctic | Themed | 1,500 | Collection = Arctic | R60 E28 L10 M2 | PROPOSED | 6 |
+| Cyberpunk | Themed | 2,000 | Collection = Cyberpunk | R60 E28 L10 M2 | PROPOSED | 5 |
+| Galaxy | Themed | 2,500 | Collection = Galaxy | R60 E28 L10 M2 | PROPOSED | 5 |
+
+C = Common, U = Uncommon, R = Rare, E = Epic, L = Legendary, M = Mythical, X = Celestial. Seasonal crates (Halloween, Winter, Anniversary) are not configured; they arrive with seasonal content in Phase 12.
+
+### Duplicate compensation (SPEC, `Config.Economy.DuplicateCompensation`)
+
+| Rarity | Coins |
 |---|---:|
 | Common | 50 |
 | Uncommon | 100 |
@@ -89,57 +103,81 @@ Other sources (planned): daily, weekly and seasonal challenges, achievements, lo
 | Mythical | 2,500 |
 | Celestial | 5,000 |
 
-## 4. Sustainability analysis
+A duplicate is converted automatically into exactly this many earned coins. This is tested for every rarity in "duplicate crate rewards provide exactly the configured compensation".
 
-**The requirement:** crates must not allow sustainable unlimited currency generation. The worst case is a player who **owns every item**, so every roll is a duplicate.
+### Opening flow (`CrateService`, `CrateOpening.Open`)
 
-Expected compensation for one roll at the standard distribution:
+1. The crate must be active, meaning it passed boot validation (§6). The RequestId must be at least 8 characters of `[A-Za-z0-9-]`, and the profile must be loaded.
+2. `allowPurchased = PolicyComplianceService:PurchasedCurrencyAllowedForCrates(player)`.
+3. The server rolls `Random:NextNumber()`. Inside one transaction `crate:{RequestId}` it then:
+   - debits the price (fails with `InsufficientFunds`, or `InsufficientEarnedFunds` when only purchased coins would cover it),
+   - selects the item,
+   - grants the weapon **or** credits the duplicate compensation,
+   - increments `Stats.CratesOpened` and `Stats.CoinsEarned`,
+   - appends to `CrateHistory`, which keeps the latest 50 entries.
+4. If the id was already applied, the stored `CrateHistory` result is returned with `Replayed = true`. Nothing is charged and nothing is granted again.
+5. On success it records the `CrateOpened` audit event, calls `RequestSave`, and pushes `EconomyState`.
 
-| Rarity | p | Compensation | p × comp |
-|---|---:|---:|---:|
-| Common | 0.400 | 50 | 20.0 |
-| Uncommon | 0.250 | 100 | 25.0 |
-| Rare | 0.180 | 250 | 45.0 |
-| Epic | 0.100 | 500 | 50.0 |
-| Legendary | 0.050 | 1,000 | 50.0 |
-| Mythical | 0.018 | 2,500 | 45.0 |
-| Celestial | 0.002 | 5,000 | 10.0 |
-| **EV** | | | **245.0** |
+The client generates one GUID per purchase and reuses it for its single retry (`InventoryController.OpenCrate`). A lost response therefore cannot cause a second charge.
 
-**Result:** a Basic crate (250 coins) returns 245 coins on average to a player who owns everything. The loop is **not net-positive**, losing 5 coins (2%) per crate, so it cannot generate unlimited currency. However:
+## 5. Anti-farming and eligibility (implemented; limits PROPOSED, D-024)
 
-1. **The margin is too thin.**
-   - Variance is high: a Celestial duplicate returns 5,000 coins, 20 times the price. A lucky streak gives large short-term gains.
-   - Basic crates become an almost free re-roll machine for completed collections.
-   - The sink is only 2%, which does little to remove coins from the economy.
-2. **Any crate whose pool is weighted toward higher rarities must be checked separately.** For example, a pool with more Legendary or Mythical weight at the same price could exceed 100% return.
-3. **Partial ownership lowers the EV.** New items pay no compensation, so the all-owned case is the upper bound.
-
-**Design constraint (ECO-04/ECO-07):** for every crate,
-
-`EV_comp(all owned) <= price × (1 − sink margin)`
-
-with a proposed sink margin of 10% or more. This is validated automatically at crate activation and by the economy simulation tool. Under that rule the Basic crate as specified (98% return) fails. The owner must choose one of these options before Phase 3 activation (it changes spec values, so it needs approval):
-- (a) raise the Basic price to at least 273,
-- (b) scale duplicate compensation for Basic-crate rolls,
-- (c) shift Basic odds toward lower tiers.
-
-Premium (750) at the standard distribution returns 245 (33%) and passes. Weapon-type crates at 500 or more pass at the standard distribution, but must be re-checked against their actual pools.
-
-## 5. Anti-farming (planned ECO-06)
-
-1. **Self-farming:** eliminations by the same attacker on the same victim pay a diminishing reward within a rolling window. Repeated alternating kills between the same two players (cooperative farming) are detected and pay nothing once over a configurable threshold.
-2. **Private servers:** private matches award no coins, XP, rating or challenge progress (`GameModes.Private.AwardsProgression = false`, implemented and tested as configuration).
-3. **Daily earning caps:** configurable soft caps on gameplay coins per day, with challenges and achievements outside the cap.
-4. **Paid random items:** crates are randomized items, and coins can be bought with Robux. A player who is ineligible for paid random items under `PolicyService` (fail closed) can open crates **only with earned coins**. This is enforced by the separate earned/purchased balances (MONETIZATION.md §4).
-5. **Reconciliation:** audit records per transaction id allow balances to be rebuilt and anomalies flagged (SEC-05).
+1. **Repeated victims.** The same killer → victim pair is rewarded at most `RepeatVictim.MaxRewarded = 3` times per `WindowSeconds = 300`. Past that, the elimination pays **nobody**, including assisters (`RewardPolicy.Evaluate`). Pair history is per server and in memory.
+2. **Hourly caps.** Match rewards are capped at 2,000 coins and 20,000 XP per rolling hour (`RewardPolicy.ApplyHourlyCap`). The counters (`Economy.HourStart`, `HourCoins`, `HourXP`) are persisted in the profile, so changing servers does not reset them. Each truncated grant records a `RewardCapped` audit event and sets `Capped = true` in the `Reward` message.
+3. **Population.** No rewards are paid with fewer than 2 players who have loaded profiles (`MinPlayersForRewards`).
+4. **Paid random items (D-026).** Crates are randomized items. Purchased coins can be spent on them only when PolicyService returned `ArePaidRandomItemsRestricted == false`. A failed lookup, missing field or unexpected value is treated as not allowed (fail closed). Earned coins, which come from gameplay, always work, so every player has a free path to crates.
+5. **Private matches and private servers.** No rewards in modes with `AwardsProgression = false` (`GameModes.Private`). No rewards in player-owned private servers (`game.PrivateServerOwnerId ~= 0`, `DisableInOwnedPrivateServers = true`).
 6. **No trading, gifting, marketplace or external sale** exists. Items cannot leave an account.
+7. **Reconciliation** (SEC-05) is planned. Today's evidence is the `Economy` audit events (`CrateOpened`, `RewardCapped`, `PolicyLookupFailed`, `CrateDisabled`) and per-profile `CrateHistory`.
 
-## 6. Pre-activation checklist for any crate
+## 6. Sustainability analysis
 
-- [ ] The reward pool is explicitly configured; probabilities sum to exactly 1.
-- [ ] Disclosure UI is generated from the same configuration.
-- [ ] Price and compensation values pass the §4 constraint (automated check).
-- [ ] The economy simulation (ECO-07) has run with current balances and drop rates.
-- [ ] PolicyService gating is verified for ineligible accounts, including the fail-closed path.
-- [ ] Reduced-animation path is verified; the reveal displays only the server-committed result.
+**The requirement:** crates must not allow sustainable unlimited currency generation. The worst case is a player who owns every item in a pool, so every roll is a duplicate.
+
+`CrateService` validates every crate at boot with `CrateOdds.Validate`:
+- odds sum to 100,
+- every rarity with odds has at least one item,
+- item probabilities sum to 1,
+- price is a positive integer,
+- compensation exists for every rarity,
+- `ExpectedCompensation(all owned) < Price × (1 − MinimumSinkMargin)`.
+
+A failing crate is disabled, logged, and recorded as a `CrateDisabled` audit event, and it is never offered.
+
+Expected compensation per roll for a player who owns everything, computed from the real distributions:
+
+| Crate | Price | EV compensation | Sink (1 − EV/price) |
+|---|---:|---:|---:|
+| Basic | 250 | 245.00 | 2.0% |
+| Premium | 750 | 397.50 | 47.0% |
+| Legendary | 2,500 | 1,275.00 | 49.0% |
+| Mythical | 5,000 | 2,700.00 | 46.0% |
+| Knife | 500 | 245.00 | 51.0% |
+| Pistol | 500 | 245.00 | 51.0% |
+| Rifle | 750 | 245.00 | 67.3% |
+| Shotgun | 750 | 240.00 | 68.0% |
+| Sniper | 1,000 | 245.00 | 75.5% |
+| Inferno | 1,500 | 440.00 | 70.7% |
+| Arctic | 1,500 | 440.00 | 70.7% |
+| Cyberpunk | 2,000 | 440.00 | 78.0% |
+| Galaxy | 2,500 | 440.00 | 82.4% |
+
+The Basic figure works out as `0.4×50 + 0.25×100 + 0.18×250 + 0.1×500 + 0.05×1000 + 0.018×2500 + 0.002×5000 = 245`. Within a rarity, per-item splitting does not change the EV.
+
+**Open owner decision.** Every crate is net-negative, so none can generate coins and all pass at `Config.Economy.MinimumSinkMargin = 0`, which is the current setting. The Basic crate as specified still sinks only 2%. It works as an almost free re-roll for completed collections, with high variance: a Celestial duplicate pays 20 times the price. The recommended fix is to set `MinimumSinkMargin` to 0.10 or more and choose one of the following, each of which changes spec values:
+- (a) Basic price of at least 273,
+- (b) lower duplicate compensation for Basic-crate rolls,
+- (c) Basic odds shifted toward lower tiers.
+
+With a 0.10 margin today, Basic would fail validation and be disabled automatically, while every other crate passes.
+
+Partial ownership only lowers the EV, because new items pay no compensation, so the all-owned case is the upper bound.
+
+## 7. Pre-activation checklist for any new crate
+
+- [x] Pool and probabilities generated from one configuration (`CrateOdds.Build`); disclosure uses the same function (tested: stratified and chi-squared checks).
+- [x] Price, compensation and EV checked automatically at boot (`CrateOdds.Validate`).
+- [x] PolicyService gating, including the fail-closed path (tested at rule level).
+- [x] Reveal displays only the server-committed result; reduced-motion path implemented (Studio verification pending).
+- [ ] Standalone economy simulation tool covering earning rates and spend over time (ECO-07; not built).
+- [ ] Owner decision on the sink margin (§6).

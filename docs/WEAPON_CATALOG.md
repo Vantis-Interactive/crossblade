@@ -3,7 +3,7 @@
 Every combat statistic belongs to an **archetype** (`src/shared/Config/Weapons/Archetypes.luau`). Collectible weapons (`src/shared/Config/Weapons/Catalog.luau`) only reference an archetype and hold no combat fields, so rarity can never increase combat power (D-008).
 
 - `WeaponCatalog.Validate()` rejects any collectible that defines combat fields.
-- A test fails if any combat module mentions `Rarity` (`tests/specs/WeaponCatalog.spec.luau`).
+- A test fails if any combat module mentions `Rarity` (`tests/specs/WeaponCatalog.spec.luau`, "no combat module reads rarity"). The scan covers `src/shared/Combat`, `src/server/Domain` and `src/server/Services`. It exempts only `CrateOpening.luau` and `CrateService.luau`, where rarity legitimately drives odds and duplicate compensation.
 
 ## 1. Firearm archetypes (implemented as configuration)
 
@@ -64,16 +64,101 @@ No single thrown knife is lethal from full health.
 
 **Balance note for review:** the sniper's 1.33 s for a two-shot body elimination equals its bolt interval. The headshot is the only one-shot elimination in the game.
 
-## 4. Implemented collectibles (Phase 2 starters)
+## 4. Implemented collectibles
 
-| Id | Name | Archetype | Rarity | Collection | Model / Animation / Audio profile |
-|---|---|---|---|---|---|
-| `classic_ar_vanguard` | Vanguard AR | AssaultRifle | Common | Classic | Rifle / TwoHanded / Rifle |
-| `classic_pistol_warden` | Warden P9 | Pistol | Common | Classic | Pistol / OneHanded / Pistol |
-| `classic_knife_ranger` | Ranger Combat Knife | CombatKnife | Common | Classic | Knife / Knife / Knife |
+The catalog holds 40 weapons: 3 starters plus 37 collectibles (D-028). Names are original. Models are temporary primitive-part dev models tinted by collection (ASSET_MANIFEST.md DEV-MODEL-001 to 007). No audio exists yet (AUD-001).
 
-- All three are `Starter = true` and form `Catalog.StarterLoadout`.
-- Their models are temporary primitive-part models (DEV-MODEL-001 to 003). Audio profiles are declared, but no audio exists yet (AUD-001).
+`ModelProfile`, `AnimationProfile` and `AudioProfile` are derived from the archetype by the catalog's `add()` helper:
+
+| Archetype | ModelProfile | AnimationProfile | AudioProfile |
+|---|---|---|---|
+| AssaultRifle | Rifle | TwoHanded | AssaultRifle |
+| SubmachineGun | SMG | TwoHanded | SubmachineGun |
+| Shotgun | Shotgun | TwoHanded | Shotgun |
+| SniperRifle | Sniper | TwoHanded | SniperRifle |
+| Pistol | Pistol | OneHanded | Pistol |
+| Revolver | Revolver | OneHanded | Revolver |
+| Dagger, Karambit, ButterflyKnife, CombatKnife | Knife | Knife | archetype id |
+
+### Starters (`Starter = true`, `Catalog.StarterLoadout`; never in crate pools)
+
+| Id | Name | Archetype | Rarity | Collection |
+|---|---|---|---|---|
+| `classic_ar_vanguard` | Vanguard AR | AssaultRifle | Common | Classic |
+| `classic_pistol_warden` | Warden P9 | Pistol | Common | Classic |
+| `classic_knife_ranger` | Ranger Combat Knife | CombatKnife | Common | Classic |
+
+### Collectibles (37)
+
+| Id | Name | Archetype | Rarity | Collection |
+|---|---|---|---|---|
+| `classic_dagger_field` | Field Dagger | Dagger | Common | Classic |
+| `tactical_karambit_trench` | Trench Karambit | Karambit | Uncommon | Tactical |
+| `inferno_butterfly_ember` | Ember Flicker | ButterflyKnife | Rare | Inferno |
+| `arctic_knife_glacier` | Glacier Bowie | CombatKnife | Epic | Arctic |
+| `cyber_karambit_talon` | Neon Talon | Karambit | Legendary | Cyberpunk |
+| `galaxy_dagger_nebula` | Nebula Stiletto | Dagger | Mythical | Galaxy |
+| `celestial_butterfly_starfall` | Starfall Butterfly | ButterflyKnife | Celestial | Celestial |
+| `classic_pistol_courier` | Courier P7 | Pistol | Common | Classic |
+| `arctic_revolver_snowline` | Snowline Revolver | Revolver | Uncommon | Arctic |
+| `cyber_pistol_circuit` | Circuit Sidearm | Pistol | Rare | Cyberpunk |
+| `inferno_revolver_cinder` | Cinder .44 | Revolver | Epic | Inferno |
+| `galaxy_pistol_quasar` | Quasar Sidearm | Pistol | Legendary | Galaxy |
+| `arctic_revolver_permafrost` | Permafrost Magnum | Revolver | Mythical | Arctic |
+| `celestial_pistol_halo` | Halo Sidearm | Pistol | Celestial | Celestial |
+| `tactical_ar_sentinel` | Sentinel AR | AssaultRifle | Common | Tactical |
+| `inferno_ar_kindling` | Kindling Carbine | AssaultRifle | Uncommon | Inferno |
+| `arctic_ar_whiteout` | Whiteout AR | AssaultRifle | Rare | Arctic |
+| `cyber_ar_voltage` | Voltage AR | AssaultRifle | Epic | Cyberpunk |
+| `inferno_ar_wildfire` | Wildfire Rifle | AssaultRifle | Legendary | Inferno |
+| `galaxy_ar_eclipse` | Eclipse Rifle | AssaultRifle | Mythical | Galaxy |
+| `celestial_ar_aurora` | Aurora Rifle | AssaultRifle | Celestial | Celestial |
+| `classic_shotgun_breacher` | Breacher 12 | Shotgun | Common | Classic |
+| `cyber_shotgun_static` | Static Scattergun | Shotgun | Uncommon | Cyberpunk |
+| `arctic_shotgun_icebreaker` | Icebreaker | Shotgun | Rare | Arctic |
+| `galaxy_shotgun_meteor` | Meteor Scatter | Shotgun | Epic | Galaxy |
+| `arctic_shotgun_avalanche` | Avalanche | Shotgun | Legendary | Arctic |
+| `cyber_shotgun_overclock` | Overclock | Shotgun | Mythical | Cyberpunk |
+| `tactical_sniper_longwatch` | Longwatch | SniperRifle | Common | Tactical |
+| `galaxy_sniper_orbit` | Orbit Marksman | SniperRifle | Uncommon | Galaxy |
+| `inferno_sniper_flare` | Flare Lance | SniperRifle | Rare | Inferno |
+| `arctic_sniper_polar` | Polar Lance | SniperRifle | Epic | Arctic |
+| `cyber_sniper_railspike` | Railspike | SniperRifle | Legendary | Cyberpunk |
+| `inferno_sniper_hellfire` | Hellfire Bolt | SniperRifle | Mythical | Inferno |
+| `celestial_sniper_seraph` | Seraph Long Rifle | SniperRifle | Celestial | Celestial |
+| `classic_smg_pathfinder` | Pathfinder SMG | SubmachineGun | Common | Classic |
+| `galaxy_smg_pulsar` | Pulsar SMG | SubmachineGun | Rare | Galaxy |
+| `shadow_smg_spectre` | Spectre SMG | SubmachineGun | Epic | Shadow |
+
+### Counts versus the launch target (starters included)
+
+| Rarity | Primary (now / target) | Secondary | Knives | Total now |
+|---|---|---|---|---:|
+| Common | 5 / 15 | 2 / 10 | 2 / 10 | 9 |
+| Uncommon | 3 / 12 | 1 / 8 | 1 / 10 | 5 |
+| Rare | 4 / 10 | 1 / 7 | 1 / 8 | 6 |
+| Epic | 4 / 10 | 1 / 6 | 1 / 9 | 6 |
+| Legendary | 3 / 7 | 1 / 5 | 1 / 6 | 5 |
+| Mythical | 3 / 4 | 1 / 3 | 1 / 5 | 5 |
+| Celestial | 2 / 2 | 1 / 1 | 1 / 2 | 4 |
+| **Total** | **24 / 60** | **8 / 40** | **8 / 50** | **40** |
+
+No count exceeds the launch target. This is tested in "stays within the launch distribution limits per rarity and slot". No Celestial shotgun exists, because the launch target allows only 2 Celestial primaries, already used by Aurora Rifle and Seraph Long Rifle.
+
+### Collections (`src/shared/Config/Collections.luau`, cosmetic only)
+
+| Collection | Finish (RGB) | Accent (RGB) |
+|---|---|---|
+| Classic | 70, 74, 72 | 96, 110, 62 |
+| Tactical | 88, 92, 70 | 150, 140, 100 |
+| Inferno | 120, 40, 26 | 255, 140, 40 |
+| Arctic | 210, 222, 230 | 120, 190, 235 |
+| Cyberpunk | 30, 26, 48 | 255, 60, 200 |
+| Shadow | 22, 22, 26 | 110, 90, 150 |
+| Galaxy | 36, 30, 80 | 150, 120, 255 |
+| Celestial | 235, 225, 190 | 120, 235, 235 |
+
+`WeaponModels.Build` colours each part by role: `Finish` uses the collection finish, `Accent` the collection accent, and `Steel` a fixed steel. Model profiles available: Rifle, SMG, Shotgun, Sniper, Pistol, Revolver, Knife. Every catalog entry's collection and model profile must exist, which is tested. Elemental and seasonal collections are not configured yet.
 
 ## 5. Catalog entry schema
 
@@ -118,7 +203,7 @@ Every tier has a unique symbol, so rarity is never shown by colour alone (tested
 | Celestial | 2 | 1 | 2 | 5 |
 | **Total** | **60** | **40** | **50** | **150** |
 
-**Collections (all original designs):** Classic, Tactical, Inferno, Arctic, Cyberpunk, Shadow, Galaxy, Celestial, Elemental, and Seasonal (Halloween, Winter, Anniversary, event collections). Do not copy protected models, artwork, branding or sounds from other games.
+**Collections (all original designs):** Classic, Tactical, Inferno, Arctic, Cyberpunk, Shadow, Galaxy and Celestial are configured. Elemental and Seasonal (Halloween, Winter, Anniversary, event collections) are planned. Do not copy protected models, artwork, branding or sounds from other games.
 
 ## 8. Adding a weapon
 
@@ -127,4 +212,4 @@ Every tier has a unique symbol, so rarity is never shown by colour alone (tested
 3. Add or point to a `ModelProfile`. For authored meshes, record the upload in ASSET_MANIFEST.md with source and licence. Never reference an asset ID that has not actually been uploaded.
 4. Assign `AnimationProfile` and `AudioProfile`.
 5. Run `lune run tests/run`. `WeaponCatalog.spec` validates structure, starter-loadout consistency and rarity independence.
-6. Add the weapon to the relevant crate pools (Phase 3) and re-run the economy simulation (ECO-07) before activating it.
+6. Crate pools pick the weapon up automatically from its slot, archetype, collection and rarity (`CrateOdds.Build`). Re-run `lune run tests/run`: "every crate passes validation" re-checks every crate's odds, pool coverage and expected compensation.

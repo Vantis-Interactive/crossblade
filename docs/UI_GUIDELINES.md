@@ -25,7 +25,7 @@ The visual language is a premium tactical interface: charcoal backgrounds, olive
 - **Motion:** Fast 0.12 s, Normal 0.25 s. Reduced motion replaces motion with immediate changes.
 
 ## 2. Rarity presentation
-Rarity always appears as **symbol + name + colour**, for example `✦ LEGENDARY` in Legendary orange. Colour is never the only signal (WEAPON_CATALOG.md §6, tested). The HUD weapon slots already follow this rule.
+Rarity always appears as **symbol + name + colour**, for example `✦ LEGENDARY` in Legendary orange. Colour is never the only signal (WEAPON_CATALOG.md §6, tested). The HUD weapon slots, the Armory lists, the crate odds rows and the crate reveal all follow this rule.
 
 ## 3. Combat HUD layout (implemented: `src/client/Controllers/HUDController.luau`)
 
@@ -38,9 +38,9 @@ Rarity always appears as **symbol + name + colour**, for example `✦ LEGENDARY`
 | Around centre | Directional damage arcs at radius 110 pointing toward the attacker, fading over 1 s. |
 | Top-centre | Match bar: mode and map, timer (or "NEXT ROUND" during intermission), current leader. |
 | Top-right | Kill feed: up to 5 entries for 6 s each; `◎` marks headshots; entries involving you use the olive background. |
-| Top-left | SCORE and SETTINGS buttons, for touch and mouse users who prefer clicking. |
+| Top-left | SCORE, SETTINGS and COLLECTION buttons (y = 64, below the Roblox top bar), for touch and mouse users. Below them, a wallet panel: `◈ <coins>`, `LV <level>  <into>/<next> XP` (`MAX` at the level cap), and an XP progress bar. |
 | Centre overlays | Elimination panel (killer, weapon, killer HP, killer level, respawn countdown); killstreak announcement; "ELIMINATED <name>" toast; scoreboard (hold Tab or D-pad left) and round results during intermission. |
-| Below the match bar | Notification toasts: pickups (green), warnings (amber, 6 s). |
+| Below the match bar | Notification toasts: pickups and rewards (green), info, warnings (amber, 6 s). Reward toasts read `+<coins> coins  +<XP> XP  (<reasons>)`. Level-ups show `LEVEL UP: LEVEL <n> (+<coins> coins)`. A capped grant adds a warning that the hourly match reward limit was reached. |
 
 Damage numbers (optional setting) float above targets in world space.
 
@@ -61,6 +61,7 @@ Damage numbers (optional setting) float above targets in world space.
 | Toggle perspective | V | R3 | CAM |
 | Scoreboard (hold) | Tab | D-pad left | SCORE button in the HUD |
 | Settings | P | Select | SETTINGS button in the HUD |
+| Collection (Armory / Crates) | I | D-pad up | COLLECTION button in the HUD |
 
 - Touch buttons are created by ContextActionService only on touch devices, at configured positions near the bottom-right.
 - Movement and jump use Roblox's standard controls, including the mobile thumbstick.
@@ -69,17 +70,33 @@ Damage numbers (optional setting) float above targets in world space.
 
 ## 5. Accessibility (implemented unless noted)
 - **Scalable UI:** a `UIScale` on the HUD scales with the viewport (`min(width/1600, height/900)`, clamped to 0.6–1.3), so the same layout works on phone, tablet, desktop and TV. Planned: a user text-scale setting.
-- **Reduced motion:** disables viewmodel sway, damage-number rise and FOV easing, and makes toasts disappear without a fade.
+- **Reduced motion:** disables viewmodel sway, damage-number rise and FOV easing, makes toasts disappear without a fade, and shows crate results instantly.
 - **Not colour alone:** rarity uses symbols; headshots use `◎` as well as colour; an empty magazine shows `0` as well as turning red.
-- **Controller navigation:** the settings panel selects its first control when opened (`GuiService.SelectedObject`), and all buttons are `Selectable`.
+- **Controller navigation:** the settings panel selects its first control, and the Collection window selects the ARMORY tab, when opened (`GuiService.SelectedObject`). All buttons are `Selectable`.
 - **Crosshair customization:** 3 styles, 5 colours, sizes 4–40.
 - Planned: colour-blind presets for HUD signal colours, subtitles for announcer audio when audio exists, and a screen-reader-friendly menu order audit (Phase 10).
 
-## 6. Settings panel (implemented: `src/client/Controllers/SettingsController.luau`)
+## 6. Collection window (implemented: `ArmoryController.luau`, `CrateController.luau`)
+
+The window is a centred 820 × 560 panel with ARMORY and CRATES tabs and a CLOSE button. Its header shows the wallet (total, earned and purchased separately, and level) and `COLLECTION <owned> / <total>`. While open it releases the cursor and blocks combat input (`UIState.SetMenuOpen("Collection", ...)`; several menus can be open at once). Opening it focuses the ARMORY tab button for gamepad navigation.
+
+**Armory tab.** Three columns (PRIMARY, SECONDARY, KNIFE) list owned weapons, highest rarity first. Each row shows the weapon name and `<symbol> <RARITY>` in the rarity colour; the equipped one has an olive background and `EQUIPPED`. Hovering or gamepad selection shows a stats line from the archetype: damage, RPM, magazine/reserve, reload and range for firearms; slash, stab and throw for knives. Activating a row requests `SetLoadout`; the change applies on the next spawn.
+
+**Crates tab.** The left list shows active crates only, meaning crates that passed server validation, with price and category. Selecting one shows the detail view:
+- **Odds before purchase.** Every possible reward is listed with `<symbol> <RARITY>`, name, `OWNED → +<compensation>` when already owned, and its exact probability (`%.4g%%`). The list comes from `CrateOdds.Build`, the same function the server uses to select. The OPEN button is inside this view, so a purchase is always made with the odds on screen.
+- The price and the coins the player can actually spend are shown. If purchased coins are not usable (PolicyService, fail closed), a note explains that only match-earned coins can be used. The button reads `OPEN FOR ◈ <price>`, `NEED ◈ <n> MORE`, or `OPENING...`.
+
+**Reveal rules.**
+- The reveal shows only the server's result. There is no spinning reel, no sequence of near-miss items, and nothing chosen on the client.
+- The card shows `<symbol> <RARITY>` and the weapon name in a card tinted with the rarity colour. It then states either `NEW WEAPON ADDED TO YOUR COLLECTION` or `DUPLICATE: converted to +<n> coins`.
+- Motion: a 0.45 s scale-in and fade. With reduced motion the result appears instantly.
+- Failures show `NOT OPENED` with a plain-language reason, for example insufficient coins, purchased coins not usable, or no response (with a note that any charge will appear in the collection).
+
+## 7. Settings panel (implemented: `src/client/Controllers/SettingsController.luau`)
 
 Field of view (70–100), sensitivity (0.1–3.0), aim sensitivity (0.1–1.5), default camera, crosshair style, colour and size, reduced motion and damage numbers. Actions: DEFAULTS, CANCEL and SAVE. The server sanitizes and persists the settings, then echoes the result back. Every control is functional; nothing is a placeholder.
 
-## 7. Required interfaces (spec §20)
+## 8. Required interfaces (spec §20)
 
 | Interface | Status |
 |---|---|
@@ -87,8 +104,9 @@ Field of view (70–100), sensitivity (0.1–3.0), aim sensitivity (0.1–1.5), 
 | Kill feed, scoreboard | Implemented |
 | Settings | Implemented |
 | Main menu | Planned (LOB-01) |
-| Inventory, armory, weapon customization | Planned (ECO-03, LOB-02) |
-| Crate shop, crate reveal (with reduced-animation path and odds disclosure) | Planned (ECO-04, LOB-03) |
+| Inventory, armory | Implemented in the Collection window (Studio verification pending); the physical lobby armory is planned (LOB-02) |
+| Weapon customization (skins, charms, attachments) | Planned |
+| Crate shop, crate reveal (with reduced-animation path and odds disclosure) | Implemented in the Collection window (Studio verification pending); the lobby crate shop is planned (LOB-03) |
 | Matchmaking, party management, server browser | Planned (LOB-04, NET-01 to NET-03) |
 | Player profile, leaderboards, ranked progression | Planned (RNK-04, RNK-02) |
 | Battle pass, challenges, achievements | Planned (MON-03, PRG-04, PRG-02) |
@@ -96,7 +114,7 @@ Field of view (70–100), sensitivity (0.1–3.0), aim sensitivity (0.1–1.5), 
 | Player reporting | Planned (SEC-03); Roblox's built-in report remains available meanwhile |
 | Administrative dashboard | Planned (SEC-02) |
 
-## 8. Rules for new UI
+## 9. Rules for new UI
 1. Use `Build.Panel`, `Build.Label` and `Build.Button` with Theme tokens. No raw colours.
 2. Every visible control must work with mouse, touch and gamepad. No placeholder buttons.
 3. Any animation must have a reduced-motion path.

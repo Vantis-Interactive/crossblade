@@ -33,6 +33,14 @@ All are emitted through `Shared/Util/Logger.luau` and visible in the Roblox Deve
 | Health anomaly | `[Audit] Security:UnexpectedHealthIncrease` | Something other than HealthService raised health |
 | Handler errors | `[Net] handler <Remote> failed` / `invoke ... failed` | Server bug triggered by a client request |
 | Round lifecycle | `[Match] round started` / `round finished` | Match loop health |
+| Economy ready | `[Economy] economy ready {rewardsEnabled}` | `false` means a private-server or no-progression mode; no rewards will be paid |
+| Crates validated | `[Crate] crates validated {active}` | Number of crates offered; 13 with the current configuration |
+| Crate disabled | `[Crate] crate failed validation and is disabled` plus `[Audit] Economy:CrateDisabled {crate, problems}` | A crate's odds, pool, price or EV check failed at boot; it is not offered |
+| Crate opened | `[Audit] Economy:CrateOpened {crate, weapon, rarity, duplicate, compensation, fromPurchased}` | One per successful (non-replayed) open |
+| Reward capped | `[Audit] Economy:RewardCapped {tx, coins, xp}` | A player hit the hourly match-reward cap; frequent occurrences for one player suggest farming |
+| Policy lookup failed | `[Policy] policy lookup failed; paid random items blocked (fail closed)` plus `[Audit] Economy:PolicyLookupFailed` | Purchased coins cannot be spent on crates by that player this session |
+| Loadout change rejected | `[Audit] Security:LoadoutChangeRejected {slot, weapon}` | A SetLoadout request referenced an unowned or wrong-slot weapon (possible tampering) |
+| Priority save failed | `[PlayerData] priority save failed; autosave will retry` | Post-economy save failed; autosave will persist it |
 
 ### Planned (Phase 10 / Phase 12)
 
@@ -90,7 +98,20 @@ Flags live in `src/shared/Config/FeatureFlags.luau`:
 4. Playtest in Studio with at least 2 players; check time-to-eliminate and handling.
 5. Record the change in `CHANGELOG.md` and the patch notes. Deploy per DEPLOYMENT.md.
 
-### 3.6 Server boot failure
+### 3.6 Disabling or changing a crate
+
+1. **To withdraw a crate**, remove its entry from `src/shared/Config/Crates.luau`, run `./scripts/verify.sh`, and publish. There is no runtime toggle yet (Phase 12 remote config). A crate that fails validation (`CrateOdds.Validate`) is disabled automatically at boot and audited as `CrateDisabled`. Raising `Config.Economy.MinimumSinkMargin` is therefore a fast, conservative lever: crates whose expected compensation exceeds the new margin stop being offered after restart.
+2. **To change odds, prices or compensation**, edit `Crates.luau` or `Economy.luau`. Values marked SPEC need owner approval and a DECISIONS.md entry. Run the tests: "every crate passes validation…" and "crates cannot generate net coins for a player who owns everything" must pass. Update the EV table in ECONOMY.md §6.
+3. Removing a crate never affects owned weapons. History entries that reference it remain valid.
+4. Odds shown to players always come from the deployed configuration, because client and server share `CrateOdds`. Never announce odds that differ from the config.
+
+### 3.7 Suspected reward farming
+
+1. Look for repeated `Economy:RewardCapped` for the same player, or one victim repeatedly appearing for one killer in the kill feed.
+2. Pairs beyond 3 rewarded eliminations per 300 s already earn nothing. The hourly cap bounds the rest.
+3. Review as in §3.3. Reconciliation tooling (SEC-05) and per-grant durable records are not built yet.
+
+### 3.8 Server boot failure
 
 `Loader.Boot` aborts if any service `Init` fails (`<Service>.Init failed: ...`). This is intentional: a half-wired server is worse than none. Roll back to the last good release (DEPLOYMENT.md §6), then fix the failing Init, typically a configuration validation such as a map with no spawn points (`MapService`).
 

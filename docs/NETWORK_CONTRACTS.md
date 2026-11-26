@@ -40,6 +40,9 @@ Shared bounds used below: `MAX_WORLD = 20000` studs; `USER_ID = Integer(−1e12,
 | `AimUpdate` | UnreliableRemoteEvent | 15 / 12 | WeaponController, at most every 0.1 s on change |
 | `SaveSettings` | RemoteEvent | 3 / 0.5 | SettingsController (Save button) |
 | `GetSnapshot` | RemoteFunction | 3 / 0.5 | SnapshotController (retries every 1 s, up to 60 times) |
+| `SetLoadout` | RemoteEvent | 4 / 1 | InventoryController (Armory tab) |
+| `OpenCrate` | RemoteFunction | 3 / 1 | InventoryController (Crates tab OPEN button; one retry with the same RequestId) |
+| `GetEconomy` | RemoteFunction | 4 / 1 | InventoryController (retries every 1 s, up to 30 times, until a state arrives) |
 
 ### FireWeapon
 
@@ -122,6 +125,46 @@ Payload `{}` (an empty struct; any field is rejected). It returns `nil` until th
 }
 ```
 
+### SetLoadout
+
+| Field | Schema |
+|---|---|
+| `Primary` | `String(64)` |
+| `Secondary` | `String(64)` |
+| `Knife` | `String(64)` |
+
+Server validation in `InventoryService`:
+1. The profile must be loaded.
+2. For each slot, `WeaponCatalog.SlotFor(id)` must equal that slot. Unknown ids fail this check.
+3. The player must own the weapon (`Inventory.Weapons[id]`).
+
+Any failure rejects the whole request, records a `LoadoutChangeRejected` security audit event, and sends the Warning notification "That loadout is not available." On success the active preset is replaced, `RequestSave` is called, the notification "Loadout saved. It applies on your next spawn." is sent, and `InventoryService.Changed` fires, which pushes `EconomyState`. The weapon in use changes only at the next spawn (`WeaponService.ResetForLife`).
+
+### OpenCrate
+
+| Field | Schema | Further server checks (`CrateService`) |
+|---|---|---|
+| `CrateId` | `String(32)` | Must be a crate that passed boot validation, otherwise `UnknownCrate` |
+| `RequestId` | `String(64)` | Length ≥ 8 and only `[A-Za-z0-9-]`, otherwise `BadRequest`. The client sends `HttpService:GenerateGUID(false)` |
+
+The handler also requires a loaded profile (`NotLoaded`). The roll is made on the server. The open runs as transaction `crate:{RequestId}` (ECONOMY.md §4). The return value is the RemoteFunction result:
+
+```lua
+{ Ok = true, Replayed = boolean, Result = {
+	RequestId, CrateId, WeaponId, Rarity, Duplicate = boolean, Compensation = int,
+	FromEarned = int, FromPurchased = int, Time = os.time,
+} }
+-- or
+{ Ok = false, Reason = "UnknownCrate" | "BadRequest" | "NotLoaded" | "InsufficientFunds"
+                     | "InsufficientEarnedFunds" | "AlreadyProcessed" | <mutation error> }
+```
+
+`Replayed = true` means the RequestId had already been applied; the stored result from `CrateHistory` is returned and nothing is charged or granted. `AlreadyProcessed` is returned if the id was applied but its result has since rotated out of the 50-entry history. The client reports `NoResponse` locally if both invoke attempts return nil.
+
+### GetEconomy
+
+Payload `{}`. Returns `nil` until the profile is loaded, otherwise the `EconomyState` payload (§3).
+
 ## 3. Server → client
 
 Payloads as constructed at the call sites listed.
@@ -138,8 +181,10 @@ Payloads as constructed at the call sites listed.
 | `MatchState` | RemoteEvent | all, or the joining player | `MatchService` (round start, round end, profile loaded) |
 | `Scoreboard` | RemoteEvent | all | `MatchService` (batched, at most every 0.5 s when changed) |
 | `Announcement` | RemoteEvent | all | `MatchService` (killstreaks) |
-| `Notification` | RemoteEvent | one player | `PickupService`, `PlayerDataService` (Studio ephemeral warning) |
+| `Notification` | RemoteEvent | one player | `PickupService`, `PlayerDataService` (Studio ephemeral warning), `InventoryService` (loadout saved or rejected) |
 | `SettingsApplied` | RemoteEvent | one player | `PlayerDataService` (SaveSettings) |
+| `EconomyState` | RemoteEvent | one player | `EconomyService.PushState`: on profile load, after every applied grant, after crate opens, on `InventoryService.Changed` and `PolicyComplianceService.StatusChanged` |
+| `Reward` | RemoteEvent | one player | `EconomyService.Grant`, when an applied grant gave more than 0 coins or XP |
 
 ### Payload shapes
 
@@ -179,7 +224,27 @@ Scoreboard = { Rows = { { Rank, UserId, Name, Eliminations, Deaths, Assists, Str
 
 Announcement = { Kind = "Killstreak", UserId, Name, Streak }
 
-Notification = { Kind = "Pickup" | "Warning", Text }
+Notification = { Kind = "Pickup" | "Warning" | "Info", Text }
+
+EconomyState = {
+	Coins = int,                     -- Earned + Purchased
+	Earned = int, Purchased = int,
+	PurchasedUsableForCrates = boolean,  -- PolicyService decision (fail closed)
+	Level = int, XPIntoLevel = int, XPForNext = int,  -- XPForNext = 0 at max level
+	Prestige = int,
+	Owned = { weaponId },            -- sorted; only ids present in the catalog
+	Loadout = { Primary, Secondary, Knife },  -- active preset
+	ActiveCrates = { crateId },      -- crates that passed boot validation, in display order
+	RewardsEnabled = boolean,
+}
+
+Reward = {
+	Coins = int, XP = int,           -- amounts actually applied after hourly caps
+	Reasons = { "GunElimination" | "KnifeElimination" | "FinishedElimination" | "Headshot"
+	          | "Assist" | "Streak<n>" | "MatchCompleted" | "FirstPlace" },
+	LevelsGained = int, LevelCoins = int, Level = int,
+	Capped = boolean,                -- true if the hourly cap reduced coins or XP
+}
 
 SettingsApplied = <Settings> (sanitized)
 ```

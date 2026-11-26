@@ -1,6 +1,6 @@
 # Player Data Schema
 
-Current schema version: **1** (`Schema.CurrentVersion` in `src/server/Data/Schema.luau`).
+Current schema version: **2** (`Schema.CurrentVersion` in `src/server/Data/Schema.luau`). v2 was introduced in Phase 3; v1 records are migrated on load (§5).
 
 Persistence is implemented by:
 
@@ -35,25 +35,26 @@ Each key holds an envelope that wraps the player data with the session lock:
 
 `Lock = nil` means no server currently owns the session.
 
-## 2. PlayerData v1 fields
+## 2. PlayerData fields (v2)
 
 Values are the defaults produced by `Schema.Default(userId, now)`.
 
 | Field | Type | Default | Purpose | Used from |
 |---|---|---|---|---|
 | `UserId` | number | the player's UserId | Integrity check: loads fail with `UserIdMismatch` if it differs | Phase 1 |
-| `SchemaVersion` | integer | `1` | Migration driver | Phase 1 |
+| `SchemaVersion` | integer | `2` | Migration driver | Phase 1 |
 | `CreatedAt` | number (os.time) | creation time | Support and analytics | Phase 1 |
 | `UpdatedAt` | number (os.time) | creation time; set on every save | Support and recovery | Phase 1 |
-| `Currency.Earned` | number | `0` | Coins earned through gameplay (spec §13: separate accounting) | Phase 3 |
-| `Currency.Purchased` | number | `0` | Coins bought with Robux | Phase 7 |
-| `Progression.LifetimeXP` | number | `0` | XP total | Phase 3 |
-| `Progression.Level` | integer | `1` | Level; replicated to the `Level` player attribute on load | Phase 2 (display), Phase 3 |
+| `Currency.Earned` | integer | `0` | Coins from match rewards, level rewards and duplicate compensation (spec §13: separate accounting). Credited only via `Wallet.CreditEarned` | Phase 3 (implemented) |
+| `Currency.Purchased` | integer | `0` | Coins bought with Robux. Spendable on crates only when policy-eligible (D-026). No product credits it yet. | Phase 7 |
+| `Progression.LifetimeXP` | integer | `0` | XP total; level is derived from it (`Leveling.Info`) | Phase 3 (implemented) |
+| `Progression.Level` | integer | `1` | Level; replicated to the `Level` player attribute on load and after each grant | Phase 3 (implemented) |
+| `Progression.HighestRewardedLevel` | integer | `1` | **v2.** Highest level whose level reward has been paid. Rewards are paid only above it, so each is paid once (D-022) | Phase 3 (implemented) |
 | `Progression.Prestige` | integer | `0` | Prestige count | Phase 7 |
-| `Inventory.Weapons` | map weaponId → `{AcquiredAt, Source}` | the three starter weapons, `Source = "Starter"` | Ownership: checked by `Domain/Loadout` on every spawn | Phase 2 |
-| `Customization` | map | `{}` | Skins, charms and attachments per weapon | Phase 3 |
+| `Inventory.Weapons` | map weaponId → `{AcquiredAt, Source}` | the three starter weapons, `Source = "Starter"` | Ownership: checked by `Domain/Loadout` on every spawn and by `InventoryService` on loadout changes. Crate grants use `Source = "Crate:<crateId>"` | Phase 2/3 |
+| `Customization` | map | `{}` | Skins, charms and attachments per weapon | Planned (not yet used) |
 | `Loadouts.ActivePreset` | integer | `1` | Selected preset index | Phase 2 |
-| `Loadouts.Presets` | array of `{Primary, Secondary, Knife}` | one preset with the starter weapons | Saved loadouts | Phase 2 |
+| `Loadouts.Presets` | array of `{Primary, Secondary, Knife}` | one preset with the starter weapons | Saved loadouts. Edited through `SetLoadout` (InventoryService) after ownership and slot validation | Phase 2/3 |
 | `Achievements` | map | `{}` | Unlocked achievements | Phase 7 |
 | `Titles.Owned` / `Titles.Equipped` | map / string | `{}` / `""` | Player titles | Phase 7 |
 | `Mastery` | map | `{}` | Weapon mastery progress | Phase 7 |
@@ -67,8 +68,8 @@ Values are the defaults produced by `Schema.Default(userId, now)`.
 | `Stats.DamageDealt` | number | `0` | CombatService / ProjectileService | Phase 2 |
 | `Stats.HighestKillstreak` | integer | `0` | MatchService | Phase 2 |
 | `Stats.Wins` / `Losses` / `MatchesPlayed` | integer | `0` | MatchService at round end (D-016) | Phase 2 |
-| `Stats.CoinsEarned` / `CratesOpened` | integer | `0` | Economy statistics | Phase 3 |
-| `WeaponStats` | map | `{}` | Per-weapon statistics | Phase 3/7 |
+| `Stats.CoinsEarned` / `CratesOpened` | integer | `0` | Economy statistics: every earned-coin credit, and every crate opened | Phase 3 (implemented) |
+| `WeaponStats` | map | `{}` | Per-weapon statistics | Planned (Phase 7; not yet used) |
 | `MatchHistory` | array | `{}` | Recent matches (must be bounded when implemented) | Phase 6 |
 | `Challenges` | map | `{}` | Challenge progress | Phase 7 |
 | `BattlePass` | map | `{}` | Season progress | Phase 7 |
@@ -76,9 +77,11 @@ Values are the defaults produced by `Schema.Default(userId, now)`.
 | `Entitlements` | map | `{}` | VIP, pass ownership and similar | Phase 7 |
 | `Settings` | `Settings` table | `Settings.Defaults()` | FOV, sensitivity, aim sensitivity, perspective, crosshair style/colour/size, reduced motion, damage numbers. Sanitized by the server on save. | Phase 2 |
 | `Tutorial.Completed` / `RewardClaimed` | boolean | `false` / `false` | One-time tutorial reward | Phase 4 |
-| `LoginRewards.LastClaimDay` / `Streak` | integer | `0` / `0` | Login rewards | Phase 3 |
+| `LoginRewards.LastClaimDay` / `Streak` | integer | `0` / `0` | Login rewards | Planned (Phase 7; not yet used) |
 | `Moderation.Warnings` | integer | `0` | Moderation status | Phase 8 |
-| `ProcessedTransactions` | map txId → os.time | `{}` | Idempotency record, bounded to `Config.Data.Limits.ProcessedTransactions = 200` | Phase 3+ |
+| `ProcessedTransactions` | map txId → os.time | `{}` | Idempotency record (`elim:`, `round:` and `crate:` ids; ECONOMY.md §1), bounded to `Config.Data.Limits.ProcessedTransactions = 200` | Phase 3 (implemented) |
+| `CrateHistory` | array of crate results | `{}` | **v2.** `{RequestId, CrateId, WeaponId, Rarity, Duplicate, Compensation, FromEarned, FromPurchased, Time}`, newest last, bounded to `Config.Economy.CrateHistoryLimit = 50`. Used to answer a replayed `OpenCrate` with the original result (D-027) | Phase 3 (implemented) |
+| `Economy.HourStart` / `HourCoins` / `HourXP` | integer | `0` / `0` / `0` | **v2.** Rolling-hour match-reward counters for the anti-farming caps (D-024). Persisted so server hopping does not reset them | Phase 3 (implemented) |
 
 Fields marked for a later phase exist now so that existing records already have the right shape. Later phases may also add fields through migrations or Reconcile.
 
@@ -137,24 +140,24 @@ Each attempt calls `UpdateAsync(key, transform)`. The transform resets its outco
 4. Checks `UserId` matches (`UserIdMismatch`).
 5. Runs Reconcile against `Schema.Default`.
 
-### Adding schema v2 (procedure)
-
-1. Bump `Schema.CurrentVersion = 2`.
-2. Add a pure migration step that transforms a v1 record into v2 and returns it:
+### v1 → v2 (implemented, Phase 3)
 
 ```lua
--- Example: split a single preset list into named presets.
 Schema.Migrations[1] = function(data)
-	for index, preset in data.Loadouts.Presets do
-		preset.Name = `Loadout {index}`
-	end
+	data.Progression.HighestRewardedLevel = data.Progression.Level
 	return data
 end
 ```
 
-3. Update `Schema.Default` to produce v2-shaped data directly.
-4. Add tests modelled on "applies migrations in order and reconciles new fields". They should cover a v1 record migrating to v2, a failing migration not writing, and v3 data being refused by a v2 server.
-5. Deploy to Staging. Load a copy of real-shaped v1 records, then promote. Never delete a migration step; old records may appear at any time.
+**Why Reconcile alone was not enough.** `CrateHistory` and `Economy` have safe defaults and are added by Reconcile. `HighestRewardedLevel` does not. Its template default is `1`, so reconciling a level-30 v1 player would set it to 1, and the next XP grant would pay level rewards for levels 2 to 30 retroactively. The migration sets it to the player's current level first; Reconcile then fills only the missing tables. Test: Economy spec, "upgrades a v1 profile without retroactive level rewards and keeps existing data".
+
+### Adding a future version (procedure)
+
+1. Bump `Schema.CurrentVersion`.
+2. Add `Schema.Migrations[n]`, a pure step that transforms a version-*n* record and returns it.
+3. Update `Schema.Default` to produce the new shape directly.
+4. Add tests: the old record migrates; a failing migration does not write; newer data is refused.
+5. Deploy to Staging. Load a copy of real-shaped old records, then promote. Never delete a migration step; old records may appear at any time.
 
 Migrations are only needed for structural changes: renames, type changes, moves and derived values. Purely additive fields are handled by Reconcile.
 
@@ -169,10 +172,13 @@ Migrations are only needed for structural changes: renames, type changes, moves 
 - If `transactionId` is already in `ProcessedTransactions`, it returns `AlreadyApplied` and changes nothing.
 - Otherwise `mutate` runs on a deep copy. If it throws, it returns `Failed` and the profile is untouched, which satisfies the requirement that a crate purchase, reward grant and duplicate compensation cannot be partially applied.
 - On success the draft is committed in place, the id is recorded with its timestamp, and the processed list is pruned to the newest `limit` (200) entries.
+- `PlayerDataService:ApplyTransaction` returns `(outcome, err)`. `err` is the mutation's error string, such as `InsufficientFunds`, `InsufficientEarnedFunds` or `NotLoaded`, which CrateService passes back to the client.
+
+**Prompt saves.** Economy mutations call `PlayerDataService:RequestSave(player)`. It schedules one save `Config.Data.PrioritySaveDelaySeconds = 6` seconds later; further calls in that window are ignored. A `LockLost` result kicks the player and a `StoreError` is left to autosave. The 6-second delay keeps within the DataStore per-key write throttle.
 
 Tests (`tests/specs/Transactions.spec.luau`): "repeated transaction requests cannot duplicate rewards", "is all-or-nothing: a failing mutation leaves the profile untouched", "keeps the processed transaction list bounded, evicting the oldest".
 
-**Scope note.** This makes in-memory mutations atomic and idempotent. Durability comes from the session lock (one writer) and from saving the processed ids in the same record as the balances they changed. A crash between a mutation and the next save loses both together. That is consistent, but it means grants made since the last save are lost. Phase 7 receipt handling must return `PurchaseGranted` only after a successful save (MON-01).
+**Scope note.** This makes in-memory mutations atomic and idempotent. Durability comes from the session lock (one writer) and from saving the processed ids in the same record as the balances they changed. A crash between a mutation and the next save loses both together. That is consistent, but it means grants made since the last save are lost. Phase 3 shortens that window with `RequestSave`. Phase 7 receipt handling must return `PurchaseGranted` only after a successful save (MON-01).
 
 ## 7. Environments
 
@@ -188,8 +194,8 @@ Tests (`tests/specs/Transactions.spec.luau`): "repeated transaction requests can
 
 ## 8. Size and limits
 
-- The Roblox DataStore value limit is 4 MB per key. The v1 default record is a few kilobytes.
-- Unbounded growth must be prevented in every list. Current bounds: `ProcessedTransactions` ≤ 200. **Required when implemented:** `MatchHistory` (suggested ≤ 20 entries), `Purchases.Receipts` (keep it bounded or move receipts to a separate keyed store), and `WeaponStats` and `Customization`, which grow at most with catalog size (150 weapons).
+- The Roblox DataStore value limit is 4 MB per key. The default record is a few kilobytes; `CrateHistory` adds at most 50 small entries.
+- Unbounded growth must be prevented in every list. Current bounds: `ProcessedTransactions` ≤ 200, `CrateHistory` ≤ 50. **Required when implemented:** `MatchHistory` (suggested ≤ 20 entries), `Purchases.Receipts` (keep it bounded or move receipts to a separate keyed store), and `WeaponStats` and `Customization`, which grow at most with catalog size (150 weapons).
 - Request budget: autosave checks `GetRequestBudgetForRequestType(UpdateAsync)` and defers when it is below 5. Final saves are never deferred.
 
 ## 9. Recovery procedures
@@ -199,7 +205,7 @@ Phase 8 will provide tooling. Until then, these are manual procedures for the ow
 | Situation | Procedure |
 |---|---|
 | Player kicked with "Locked" repeatedly | Normally self-heals once the lock is stale (≤ 5 minutes after a crashed server). If it persists, check for a stuck server (OPERATIONS.md runbook). Clearing `Lock` manually is safe only when no server has the player loaded. |
-| `Corrupt` record | The record is preserved untouched. Export it, repair the JSON by hand to a valid v1 envelope (`{Data = {...}, Lock = nil}`), and write it back. Use DataStore key versioning (`ListVersionsAsync` / `GetVersionAsync`) to recover the last good version. |
+| `Corrupt` record | The record is preserved untouched. Export it, repair the JSON by hand to a valid envelope at the current schema version (`{Data = {...}, Lock = nil}`), and write it back. Use DataStore key versioning (`ListVersionsAsync` / `GetVersionAsync`) to recover the last good version. |
 | `FutureVersion` kicks after a rollback | Expected: older servers refuse newer data. Roll forward, or shut down old servers so players reach servers on the current version. Never write v(n+1) data back as v(n). |
 | Player reports lost progress | Use DataStore version history for `player_<UserId>` to find the last good version and restore it with an audited manual write. Planned tooling: SEC-05 (economy reconciliation) and SEC-08. |
 | Right-to-erasure request | Remove the key `player_<UserId>` from all three environment stores. UserIds are associated on every write. |
