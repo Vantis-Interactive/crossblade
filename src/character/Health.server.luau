@@ -1,0 +1,3 @@
+-- Intentionally empty. A Script named "Health" in StarterCharacterScripts replaces Roblox's default
+-- health-regeneration script, which is required because Crossblade has no automatic regeneration
+-- (spec §7). HealthService additionally reverts any unexpected health increase.

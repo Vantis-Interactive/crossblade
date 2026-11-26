@@ -1,0 +1,85 @@
+--!nocheck
+local Config = Runtime:Get("ReplicatedStorage/Shared/Config")
+local HealthRules = Runtime:Get("ReplicatedStorage/Shared/Combat/HealthRules")
+local PickupState = Runtime:Get("ServerScriptService/Server/Domain/PickupState")
+
+local MAX = Config.Player.MaxHealth
+
+describe("Health", function()
+	it("uses 150 maximum health", function()
+		expect(MAX).toBe(150)
+		expect(Config.Player.HealthRegeneration).toBe(false)
+	end)
+
+	it("a player cannot exceed 150 HP from healing", function()
+		expect(HealthRules.Heal(140, 100, MAX)).toBe(150)
+		expect(HealthRules.Heal(150, 25, MAX)).toBe(150)
+		expect(HealthRules.Heal(1, 1e9, MAX)).toBe(150)
+	end)
+
+	it("cannot heal the dead or apply negative healing", function()
+		expect(HealthRules.Heal(0, 50, MAX)).toBe(0)
+		expect(HealthRules.Heal(100, -50, MAX)).toBe(100)
+	end)
+
+	it("clamps damage to remaining health and reports death once", function()
+		local result = HealthRules.ApplyDamage(30, 100)
+		expect(result.Health).toBe(0)
+		expect(result.Dealt).toBe(30)
+		expect(result.Died).toBe(true)
+		local again = HealthRules.ApplyDamage(0, 100)
+		expect(again.Died).toBe(false)
+		expect(again.Dealt).toBe(0)
+	end)
+
+	it("ignores negative damage", function()
+		local result = HealthRules.ApplyDamage(100, -40)
+		expect(result.Health).toBe(100)
+		expect(result.Dealt).toBe(0)
+	end)
+end)
+
+describe("Health pickups", function()
+	local cfg = Config.Pickups.Health
+
+	it("match the specified recovery and respawn values", function()
+		expect(cfg.Small.Amount).toBe(25)
+		expect(cfg.Small.RespawnSeconds).toBe(10)
+		expect(cfg.Medium.Amount).toBe(50)
+		expect(cfg.Medium.RespawnSeconds).toBe(20)
+		expect(cfg.Large.Amount).toBe(100)
+		expect(cfg.Large.RespawnSeconds).toBe(30)
+	end)
+
+	it("heal up to the cap and then respawn after the configured delay", function()
+		local pickup = PickupState.new("h1", "Health", cfg.Large.Amount, cfg.Large.RespawnSeconds)
+		local consumed, health = PickupState.TryHeal(pickup, 120, MAX, 100)
+		expect(consumed).toBe(true)
+		expect(health).toBe(150)
+		local again = PickupState.TryHeal(pickup, 10, MAX, 110)
+		expect(again).toBe(false)
+		local later, healed = PickupState.TryHeal(pickup, 10, MAX, 130)
+		expect(later).toBe(true)
+		expect(healed).toBe(110)
+	end)
+
+	it("are not consumed at full health or when dead", function()
+		local pickup = PickupState.new("h2", "Health", 25, 10)
+		expect((PickupState.TryHeal(pickup, 150, MAX, 0))).toBe(false)
+		expect((PickupState.TryHeal(pickup, 0, MAX, 0))).toBe(false)
+		expect(PickupState.IsAvailable(pickup, 0)).toBe(true)
+	end)
+
+	it("ammo pickups are only consumed when rounds were actually added", function()
+		local pickup = PickupState.new("a1", "Ammo", 1, 15)
+		expect(PickupState.TryAmmo(pickup, 0, function()
+			return false
+		end)).toBe(false)
+		expect(PickupState.IsAvailable(pickup, 0)).toBe(true)
+		expect(PickupState.TryAmmo(pickup, 0, function()
+			return true
+		end)).toBe(true)
+		expect(PickupState.IsAvailable(pickup, 14.9)).toBe(false)
+		expect(PickupState.IsAvailable(pickup, 15)).toBe(true)
+	end)
+end)

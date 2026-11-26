@@ -1,0 +1,47 @@
+# Minimal Roblox standard library for Selene (see docs/DECISIONS.md D-006).
+# Selene's `generate-roblox-std` could not download the API dump through this environment's TLS proxy.
+# This file declares Roblox globals so undefined-global, unused-variable and shadowing lints work; it
+# does not provide member-level API checking. Regenerate the full std with `selene generate-roblox-std`
+# on a machine with direct internet access and switch selene.toml back to `std = "roblox"`.
+base: luau
+name: roblox_min
+globals:
+  game: { any: true }
+  workspace: { any: true }
+  script: { any: true }
+  Enum: { any: true }
+  Instance: { any: true }
+  Vector3: { any: true }
+  Vector2: { any: true }
+  CFrame: { any: true }
+  Color3: { any: true }
+  BrickColor: { any: true }
+  UDim: { any: true }
+  UDim2: { any: true }
+  Rect: { any: true }
+  Ray: { any: true }
+  RaycastParams: { any: true }
+  OverlapParams: { any: true }
+  TweenInfo: { any: true }
+  NumberRange: { any: true }
+  NumberSequence: { any: true }
+  NumberSequenceKeypoint: { any: true }
+  ColorSequence: { any: true }
+  ColorSequenceKeypoint: { any: true }
+  PhysicalProperties: { any: true }
+  Random: { any: true }
+  DateTime: { any: true }
+  Font: { any: true }
+  task: { any: true }
+  debug: { any: true }
+  buffer: { any: true }
+  utf8: { any: true }
+  typeof:
+    args:
+      - type: any
+  warn:
+    args:
+      - type: "..."
+  tick: { args: [] }
+  time: { args: [] }
+  elapsedTime: { args: [] }

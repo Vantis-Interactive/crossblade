@@ -1,0 +1,15 @@
+# Runtime dependency manifest.
+# Crossblade currently ships with ZERO third-party runtime dependencies (see docs/DECISIONS.md, D-004).
+# Any dependency added here must be reviewed and recorded in docs/DECISIONS.md before merge.
+[package]
+name = "vantis-interactive/crossblade"
+version = "0.2.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+private = true
+
+[dependencies]
+
+[server-dependencies]
+
+[dev-dependencies]

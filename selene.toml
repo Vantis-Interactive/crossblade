@@ -1,0 +1,6 @@
+std = "roblox_min"
+
+[rules]
+# Luau type annotations make some shadowing intentional and readable.
+shadowing = "allow"
+mixed_table = "allow"
