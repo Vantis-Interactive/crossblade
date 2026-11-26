@@ -44,7 +44,8 @@ Everything in `src/server/Services` and `src/client/Controllers`: DataStore I/O,
 2. **Roblox Studio access** to run the Phase 2 manual checklist, and a published place with API access enabled.
 3. **Production, staging and development PlaceIds** for `Config.Data.Environments`.
 4. **Licensed or original audio and art** to replace temporary assets.
-5. **Authorization** before any public publish, live purchase or production data change (directive §2.17). None has been performed.
+5. **Crate economy values.** With the specified odds and duplicate compensation, a 250-coin Basic crate returns 245 coins of expected compensation to a player who owns everything. That is only a 2% coin sink (ECONOMY.md §4). Approve one of the proposed adjustments before any crate goes live; each changes specified values.
+6. **Authorization** before any public publish, live purchase or production data change (directive §2.17). None has been performed.
 
 ## Recommended next steps
 1. Run the TEST_PLAN.md §4 checklist in Studio with 3+ players and fix what it finds.

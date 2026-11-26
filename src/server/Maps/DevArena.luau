@@ -83,7 +83,7 @@ quad(Vector3.new(5, 3, 5), Vector3.new(25, 1.5, 52), OLIVE, Enum.Material.WoodPl
 quad(Vector3.new(4, 4, 4), Vector3.new(62, 2, 8), OLIVE, Enum.Material.WoodPlanks)
 -- Long-lane pillars (break up sniper lines along the outer lanes).
 quad(Vector3.new(3, 12, 3), Vector3.new(70, 6, 45), CONCRETE, Enum.Material.Concrete)
-quad(Vector3.new(3, 12, 3), Vector3.new(70, 6, 70), CONCRETE, Enum.Material.Concrete)
+quad(Vector3.new(3, 12, 3), Vector3.new(58, 6, 68), CONCRETE, Enum.Material.Concrete)
 -- Corner towers: elevated, exposed long-range positions. Jump height with the configured
 -- JumpPower (50) and gravity (196.2) is ~6.4 studs, so the 5-stud tower is reached via a 2.5-stud step.
 quad(Vector3.new(12, 5, 12), Vector3.new(76, 2.5, 76), STEEL, Enum.Material.DiamondPlate)
@@ -111,7 +111,7 @@ local function quadMarkers(position: Vector3, kind: string?): { Marker }
 	return result
 end
 
-local health: { Marker } = quadMarkers(Vector3.new(30, 1.5, 40), "Small")
+local health: { Marker } = quadMarkers(Vector3.new(20, 1.5, 34), "Small")
 table.insert(health, { Position = Vector3.new(55, 1.5, 0), Kind = "Medium" })
 table.insert(health, { Position = Vector3.new(-55, 1.5, 0), Kind = "Medium" })
 table.insert(health, { Position = Vector3.new(0, 7.5, 0), Kind = "Large" })

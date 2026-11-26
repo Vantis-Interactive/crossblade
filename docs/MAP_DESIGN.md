@@ -56,15 +56,13 @@ Source: `src/server/Maps/DevArena.luau`. Tracked as DEV-MAP-001 (D-010).
 | Kind | Count | Placement |
 |---|---:|---|
 | Spawns | 16 | Ring around the centre at alternating radii 80 and 66, each facing the centre |
-| Small health | 4 | (±30, ±40) |
+| Small health | 4 | (±20, ±34) |
 | Medium health | 2 | (±55, 0) |
 | Large health | 1 | Platform centre (0, 7.5, 0) |
 | Ammo | 4 | (±50, ±55) |
 | Knife stations | 2 | (0, ±45) |
 
-**Known layout defects (to fix in the greybox data):**
-- Two of the four Small health packs, (30, −40) and (−30, 40), sit inside the rotated copies of the 18 × 8 × 2 L-wall. Those rotated copies occupy x ∈ [29, 31], z ∈ [−47, −29], and the mirrored equivalent.
-- The (70, 70) lane pillar overlaps the corner tower footprint (x, z ∈ [70, 82]) by 1.5 studs.
+**Layout fixes (2026-11-26):** the Small health packs moved from (±30, ±40), where two sat inside rotated L-wall copies, to (±20, ±34). The outer lane pillar moved from (70, 70) to (58, 68) so it no longer clips the corner tower.
 
 ## 3. Per-map checklist (every authored map)
 
