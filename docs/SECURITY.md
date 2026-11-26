@@ -2,7 +2,7 @@
 
 Scope: the Phase 0–3 build (Free-for-All combat vertical slice plus economy, inventory, crates and progression). The design follows the directive's defence-in-depth requirement (spec §25). Security is built into each system rather than deferred to Phase 8. Phase 8 expands administration and moderation (backlog SEC-01 to SEC-08).
 
-Status vocabulary follows BACKLOG.md. A mitigation listed as "tested" means a named test in `tests/specs/` exercises its logic and passed under Lune. None of the mitigations has yet been verified against a real exploit client in a live Roblox server (see "Security review of Phases 2–3").
+Status vocabulary follows BACKLOG.md. A mitigation listed as "tested" means a named test in `tests/specs/` exercises its logic and passed under Lune. None of the mitigations has yet been verified against a real exploit client in a live Roblox server (see "Security review of Phases 2–4").
 
 ## 1. Assets to protect
 
@@ -77,6 +77,13 @@ Test names refer to `it(...)` blocks in `tests/specs/<file>`.
 | T23 | Pickup theft or remote triggering | Pickups have no client trigger. The server polls root proximity (radius 4, height 5) and consumes only when the pickup would have an effect. | `PickupService.luau`, `src/server/Domain/PickupState.luau` | Health: "are not consumed at full health or when dead", "ammo pickups are only consumed when rounds were actually added", "a player cannot exceed 150 HP from healing" | Low. Movement spoofing can reach pickups faster (T8). |
 | T25 | Loadout spoofing (equipping weapons not owned) | `SetLoadout` carries weapon ids, but the server checks each slot's id with `WeaponCatalog.SlotFor` and the owned inventory, rejects the whole request on any failure, and audits `LoadoutChangeRejected`. Spawn-time resolution re-validates in any case (T7). | `InventoryService.luau`, `src/server/Domain/Loadout.luau` | Loadout: "a player cannot attack with an unowned weapon: unowned preset entries are replaced", "rejects unknown ids and weapons placed in the wrong slot" | Low. The `SetLoadout` handler itself needs Studio verification. |
 | T26 | Level-reward re-payment (migration or prestige reset) | Level rewards are paid only above `HighestRewardedLevel`. The v1→v2 migration sets that value to the existing level. | `src/shared/Economy/Leveling.luau`, `src/server/Data/Schema.luau` | Economy: "pays level rewards once, including milestone bonuses", "upgrades a v1 profile without retroactive level rewards and keeps existing data" | Low. |
+| T27 | Teammate damage, and player damage in the hub | Every player hit (firearm, melee, thrown knife) must pass `MatchService:CanDamage`: never in Lobby mode; both players allowed to fight; victim alive; opponents only, so teammates in Team Deathmatch and duels can never be damaged. Kill and assist credit is dropped for non-opponents as a second guard. The client excludes teammates from hit prediction, but that is a convenience, not the control. | `MatchService.CanDamage`, `CombatService.luau`, `ProjectileService.luau` | Modes: "assigns newcomers to the smaller team and respects capacity", "balances an ordered list and reports overflow" (team assignment only). `CanDamage` itself is Roblox-bound and needs Studio verification | Low. |
+| T28 | Teleport manipulation (arbitrary PlaceId, spoofed teleport data) | The client sends only a destination id from a fixed enum; PlaceIds come solely from `Config.Places`. Teleport data is informational: each place reads its role and mode from its own `PlaceConfig` and never from teleport data (D-030). Requests are rate-limited (2 / 0.2 s) and refused while one is in progress. | `PortalService.luau`, `src/shared/Config/Places.luau`, `src/shared/PlaceConfig.luau` | Modes: "every destination points at an implemented mode". NetSchema: "rejects unknown enum values and wrong types" | Low. |
+| T29 | Tutorial step spoofing and reward farming | Steps complete strictly in order. The client may complete only the current step, and only if it is client-checked. Combat and economy steps (dummy hits, reload, knife hit, knife recovery, both pickups, crate open, loadout change) complete only from server-observed events. The reward is one transaction `tutorial-reward` that also sets `Tutorial.RewardClaimed`; replays never grant it (D-036). | `src/server/Domain/TutorialProgress.luau`, `TutorialService.luau`, `EconomyService.GrantTutorialReward` | Modes: "only accepts the current step, and only from the right source", "grants the reward exactly once" | Low. Client-checked steps (movement, camera, weapon switch, the coins step, travel intent) can be spoofed, but they cannot skip the server-checked steps before the reward. |
+| T30 | Skipping the mandatory tutorial | Hub portals refuse `TutorialRequired` until `Tutorial.Completed` is true. | `PortalService.refusal` | Needs Studio verification | Medium. Arena places do not check tutorial completion, so a player who reaches an arena by other means (for example joining a friend there) bypasses the gate. |
+| T31 | Training dummy abuse | Dummy hits pass the same `HitValidator` checks as player hits (against the dummy's current root). Dummies grant no coins, XP or statistics; their only effect is tutorial progress. A `DummyId` must name a living dummy, and each hit must name exactly one target (`HitTargetAmbiguous` otherwise). | `TrainingService.luau`, `CombatService.luau` | Needs Studio verification | Low. |
+| T32 | Crate token misuse | Tokens are created only by the tutorial reward transaction and are spent inside the crate transaction (`NoToken` if none), so a token cannot be spent twice or minted by the client. Token opens move no currency and are not paid random items (D-037). | `src/server/Domain/CrateOpening.luau`, `EconomyService.GrantTutorialReward` | `Economy.spec` > "a free crate token opens a crate without moving any currency", "cannot open with a token that does not exist…", "a token for one crate cannot open another" | Low |
+| T33 | Map vote manipulation | One vote per UserId, only for offered options, during intermission only; rate-limited 4 / 1 s. A departing player's vote is removed. | `src/server/Domain/MapVote.luau`, `MatchService` | MapVote: "counts one vote per player, rejects invalid maps, and picks the most voted" | Low. |
 | T24 | Unexpected health increase (regeneration exploit or engine script) | The default Roblox regeneration script is overridden (`src/character/Health.server.luau`). HealthService reverts any increase it did not make and audits `UnexpectedHealthIncrease`. | `HealthService.luau` | Health: "uses 150 maximum health" (config). Revert path needs Studio verification. | Low. |
 
 ## 5. The exploitable envelope (validation tolerances)
@@ -139,6 +146,9 @@ Signal weights (`Config.AntiCheat.Suspicion.Weights`):
 | Economy | `CrateDisabled` (crate, problems) | CrateService at boot |
 | Economy | `RewardCapped` (tx, applied/requested coins and XP) | EconomyService |
 | Economy | `PolicyLookupFailed` | PolicyComplianceService |
+| Economy | `TutorialRewardGranted` (coins, crate, count) | EconomyService |
+| Data | `TutorialCompleted` | TutorialService |
+| Data | `TeleportFailed` (destination, error) | PortalService |
 
 **Limitation:** records are lost when the server shuts down. Durable cross-server storage and the dashboard reader are SEC-08 and SEC-02.
 
@@ -149,6 +159,12 @@ Signal weights (`Config.AntiCheat.Suspicion.Weights`):
 - `scripts/verify-place.luau` fails the build if any `Script` or `LocalScript` exists under `ReplicatedStorage`. It also asserts that every required server service is a ModuleScript under ServerScriptService.
 - Future external credentials, such as analytics endpoints, must use Roblox Secrets (`HttpService:GetSecret`) and never source files.
 
+### Structural controls (static tests in `tests/specs/Integrity.spec.luau`)
+These catch wiring mistakes that would otherwise disable a security control at runtime:
+- Every remote used in code is declared in `Contracts` in the right direction, and every declared remote is used.
+- Every service and controller declares the registry dependencies it uses, and each place role (Hub, Arena) boots without cycles or missing dependencies.
+- **Signal wiring:** every `Module.Signal:Fire` targets a signal that module declares with `Signal.new()`, and every `registry.Service.Signal:Connect` (or a local bound from the registry) targets a declared signal. This check caught a missing `PickupConsumed` declaration during Phase 4 that would have broken the tutorial's server-checked Pickups step.
+
 ## 9. Administration and moderation (planned)
 
 No administrator, moderator or support commands exist yet, so none can be abused. The planned design is SEC-01 to SEC-06:
@@ -157,7 +173,7 @@ No administrator, moderator or support commands exist yet, so none can be abused
 - Two-person or confirmation safeguards for high-impact economic changes and mass sanctions.
 - Use of Roblox's own moderation and communication features (TextChatService filtering, reporting) rather than bypassing them.
 
-## 10. Security review of Phases 2–3: known gaps
+## 10. Security review of Phases 2–4: known gaps
 
 These gaps are stated plainly so that none is mistaken for a completed control:
 
@@ -174,3 +190,6 @@ These gaps are stated plainly so that none is mistaken for a completed control:
 11. **Economy reconciliation is not built** (SEC-05). Evidence today is the in-memory `Economy` audit events and per-profile `CrateHistory` (the latest 50 opens).
 12. **Repeat-victim history is per server and in memory.** It resets when the victim moves to another server. The persisted hourly cap is the cross-server bound.
 13. **The economy services are untested in Studio.** The rules are unit-tested; the service glue (RemoteFunction handlers, PolicyService calls, `RequestSave`) still needs the Studio checklist.
+14. **Phase 4 glue is Roblox-bound.** `CanDamage`, team spawns, duel spectating, teleports and the tutorial's event hooks are untested outside Studio; teleports cannot run in Studio at all.
+15. **The tutorial gate exists only at hub portals** (T30).
+16. ~~Crate token opens have no unit test~~: covered by `Economy.spec` since Phase 4 (T32).

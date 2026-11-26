@@ -21,7 +21,7 @@ All are emitted through `Shared/Util/Logger.luau` and visible in the Roblox Deve
 
 | Signal | Log scope / message | Meaning |
 |---|---|---|
-| Boot | `[Boot] server booted {modules, ms}` | All services initialized. An `Init failed` error aborts boot. |
+| Boot | `[Boot] server booted {role, mode, modules, ms}` | All services for this place's role initialized. An `Init failed` error aborts boot. |
 | Data store selected | `[PlayerData] using DataStore {store, environment}` | Confirms the environment and store name |
 | Studio ephemeral mode | `[PlayerData] DataStores unavailable in Studio; running in NON-PERSISTENT mode` | Studio only (D-009) |
 | Load failure | `[PlayerData] profile load failed {player, failure, detail}` plus `[Audit] Data:KickedForData` | See DATA_SCHEMA.md §4 |
@@ -32,7 +32,13 @@ All are emitted through `Shared/Util/Logger.luau` and visible in the Roblox Deve
 | Loadout rejected | `[Audit] Security:LoadoutRejected` | Saved preset referenced an unowned or invalid weapon |
 | Health anomaly | `[Audit] Security:UnexpectedHealthIncrease` | Something other than HealthService raised health |
 | Handler errors | `[Net] handler <Remote> failed` / `invoke ... failed` | Server bug triggered by a client request |
-| Round lifecycle | `[Match] round started` / `round finished` | Match loop health |
+| Match lifecycle | `[Match] match service ready {mode, kind}`, `match started`, `duel started`, `match finished {match, mode, winner}` | Match loop health |
+| Match tick error | `[Match] match tick failed {error}` | The match loop caught an error; the next tick retries. Repeated errors mean a stuck match (§3.10) |
+| Stranded player | `[Match] respawning stranded player {player}` | Watchdog respawned a loaded player with no character; occasional is fine, frequent points to a spawn bug |
+| Map loaded | `[Map] map loaded {map}` | Initial map or vote winner |
+| Authored map ignored | `[Map] authored map ignored: needs MapId and Modes attributes` | A `ServerStorage.Maps` Model is missing required attributes |
+| Teleport failed | `[Portal] teleport failed` / `teleport init failed {result, message}` plus `[Audit] Data:TeleportFailed` | See §3.9 |
+| Tutorial | `[Audit] Economy:TutorialRewardGranted {coins, crate, count}`, `[Audit] Data:TutorialCompleted` | Reward granted once; tutorial finished |
 | Economy ready | `[Economy] economy ready {rewardsEnabled}` | `false` means a private-server or no-progression mode; no rewards will be paid |
 | Crates validated | `[Crate] crates validated {active}` | Number of crates offered; 13 with the current configuration |
 | Crate disabled | `[Crate] crate failed validation and is disabled` plus `[Audit] Economy:CrateDisabled {crate, problems}` | A crate's odds, pool, price or EV check failed at boot; it is not offered |
@@ -113,7 +119,39 @@ Flags live in `src/shared/Config/FeatureFlags.luau`:
 
 ### 3.8 Server boot failure
 
-`Loader.Boot` aborts if any service `Init` fails (`<Service>.Init failed: ...`). This is intentional: a half-wired server is worse than none. Roll back to the last good release (DEPLOYMENT.md §6), then fix the failing Init, typically a configuration validation such as a map with no spawn points (`MapService`).
+`Loader.Boot` aborts if any service `Init` fails (`<Service>.Init failed: ...`). This is intentional: a half-wired server is worse than none. Roll back to the last good release (DEPLOYMENT.md §6), then fix the failing Init. Typical causes are configuration validation: a map with no spawn points, no map supporting the place's mode (`no map supports mode ...`), or a `PlaceConfig.Mode` whose mode is not implemented (`MatchService`).
+
+### 3.9 Teleport failures
+
+1. Player-facing: the toast "The teleport failed. Please try again." The player stays fully playable in the current place; nothing is lost.
+2. `PortalService` already retries `TeleportAsync` 3 times with backoff; `TeleportInitFailed` (for example a full destination server) also reports to the player.
+3. Check `Data:TeleportFailed` audit context and the Roblox status page. Widespread failures for one destination usually mean a wrong or unpublished PlaceId in `Config.Places`.
+4. Arrivals that are kicked with "still being saved by another server" are session-lock contention on the destination (D-038); the destination retries the load for about 20 s before kicking. Frequent occurrences mean the source server is slow to release (§3.2).
+5. Reserved servers and cross-server queue recovery are Phase 5 (NET-01, NET-04).
+
+### 3.10 Stuck match or player
+
+1. Players without a character are respawned by the MatchService watchdog every 2 s, except duel spectators while a duel round is running.
+2. A duel that cannot finish (for example a stalled round) ends at the round time limit (D-033). A team whose players all leave forfeits.
+3. Waiting or Countdown that never starts means fewer loaded players than the start threshold (`PlayersNeeded` in `MatchState`): Duel needs 2 × TeamSize, Team Deathmatch 2.
+4. If `match tick failed` repeats, collect the error and restart the affected servers after fixing.
+
+### 3.11 Disabling a mode or destination
+
+1. **Fastest:** set the destination's PlaceId to 0 in `src/shared/Config/Places.luau` and re-publish the hub. Portals and the PLAY menu then refuse it with `NotConfigured`; players already in that place finish normally.
+2. To stop the place itself, shut down its servers from the Roblox dashboard, or set the mode's `Implemented = false` in `Config/GameModes.luau` and re-publish that place (its servers then refuse to boot, so prefer the PlaceId route).
+
+### 3.12 Map rotation issues
+
+1. A vote winner that fails to load (for example an authored map without spawn points) is rejected before anything is replaced: `MapService.Load` validates the new map first, and `MatchService` logs `voted map failed to load; keeping the current map` and continues on the current map. Fix or remove the broken map from `ServerStorage.Maps` and re-publish.
+2. To take a map out of rotation, remove its mode from the map's `Modes` (attribute for authored maps, `Modes` field for greybox layouts) and re-publish.
+3. After a map change, pickups, training dummies, thrown knives and spawn history are rebuilt automatically on `MapChanged`.
+
+### 3.13 Tutorial reward questions
+
+1. The tutorial reward (500 coins and one Basic Crate token) is granted once per account, in transaction `tutorial-reward`, and recorded as `Economy:TutorialRewardGranted`.
+2. `Tutorial.RewardClaimed = true` in the profile means it was granted; replays never grant it again. The crate token is listed in `EconomyState.CrateTokens` until spent.
+3. A player who says they never received it but has `RewardClaimed = true` already has it; check `CrateHistory` for a token open (`UsedToken = true`). Manual grants require the owner-approved support process (DATA_SCHEMA.md §9).
 
 ## 4. Live-operations cadence (planned)
 

@@ -19,7 +19,7 @@ In the tables below, **SPEC** values come from the master directive. **PROPOSED*
 
 | Balance | Source | Notes |
 |---|---|---|
-| `Currency.Earned` | Match rewards, level rewards, duplicate compensation | Credited only through `Wallet.CreditEarned`, which rejects negative or fractional amounts |
+| `Currency.Earned` | Match rewards, level rewards, duplicate compensation, the tutorial reward | Credited only through `Wallet.CreditEarned`, which rejects negative or fractional amounts |
 | `Currency.Purchased` | Robux developer products (MONETIZATION.md) | **No product exists yet.** The balance is always 0 until Phase 7 |
 
 - The HUD shows one total (`Wallet.Total`). The Collection window shows both balances.
@@ -31,9 +31,10 @@ In the tables below, **SPEC** values come from the master directive. **PROPOSED*
 
 | Prefix | Format | Created by |
 |---|---|---|
-| `elim:` | `elim:{serverTag}:{roundId}:{deathSequence}:{userId}` | `EconomyService` on `MatchService.EliminationScored` |
-| `round:` | `round:{serverTag}:{roundId}:{userId}` | `EconomyService` on `MatchService.RoundFinished` |
+| `elim:` | `elim:{serverTag}:{matchId}:{deathSequence}:{userId}` | `EconomyService` on `MatchService.EliminationScored` |
+| `match:` | `match:{serverTag}:{matchId}:{userId}` | `EconomyService` on `MatchService.MatchFinished` |
 | `crate:` | `crate:{RequestId}` (client GUID) | `CrateService` (D-027) |
+| `tutorial-reward` | fixed id, once per account | `EconomyService.GrantTutorialReward` (§8) |
 
 `serverTag` is `game.JobId`, or `studio{os.time()}` in Studio. Re-processing the same event therefore cannot pay twice, and ids from different servers never collide.
 
@@ -51,10 +52,13 @@ Each elimination becomes one grant per beneficiary (`RewardPolicy.Evaluate`), ap
 | "Finished off" elimination (D-013) | 10 | PROPOSED (D-025) | 40 | PROPOSED (D-025) |
 | Match completed (every ranked entry) | 0 | none | 150 | PROPOSED |
 | Free-for-All first place (≥1 elimination) | 0 | PROPOSED (D-029) | +250 | PROPOSED |
-| Duel victory | 100 | SPEC (configured; duels not built) | none | none |
-| Team Deathmatch victory | 150 | SPEC (configured; TDM not built) | none | none |
+| Duel victory (every member of the winning team) | 100 | SPEC (`Rewards.DuelVictory`) | +250 | PROPOSED (D-039) |
+| Team Deathmatch victory (every member of the winning team) | 150 | SPEC (`Rewards.TeamDeathmatchVictory`) | +250 | PROPOSED (D-039) |
+| Tutorial completion reward (once per account) | 500 + 1 Basic Crate token | SPEC | 0 | none |
 
 Self-eliminations and environmental deaths with no attacker pay nothing. A streak bonus is paid when the killer's streak, after the kill, is a multiple of `Rewards.Streak.Every = 5`.
+
+**Match end (`MatchService.MatchFinished` → `EconomyService.onMatchFinished`).** One grant per ranked participant, transaction `match:…`, subject to the same eligibility and hourly caps. Every participant gets match-completion XP. In team modes, members of the winning team (`WinnerTeam`) also get the mode's `VictoryReward` coins (`Config.GameModes.<mode>.VictoryReward` names the key in `Config.Economy.Rewards`) and +250 XP; a draw pays only match-completion XP. Free-for-All keeps its first-place rule. The coin values are in the table above. Team kills cannot happen (`MatchService.CanDamage`), and eliminations scored in non-progression modes (the hub's Lobby mode, private matches) pay nothing.
 
 Planned sources not built yet: challenges, achievements, login rewards and events (Phase 7).
 
@@ -120,6 +124,8 @@ A duplicate is converted automatically into exactly this many earned coins. This
 
 The client generates one GUID per purchase and reuses it for its single retry (`InventoryController.OpenCrate`). A lost response therefore cannot cause a second charge.
 
+**Free crate tokens.** `UseToken = true` spends one `CrateTokens[crateId]` instead of the price, inside the same transaction (`NoToken` if there is none). Tokens are created only by the tutorial reward (§8). No currency moves, so a token open is not a paid randomized item and the policy check does not apply (D-037). Everything else (selection, duplicate compensation, history, statistics, idempotency) is identical. The result carries `UsedToken = true`.
+
 ## 5. Anti-farming and eligibility (implemented; limits PROPOSED, D-024)
 
 1. **Repeated victims.** The same killer → victim pair is rewarded at most `RepeatVictim.MaxRewarded = 3` times per `WindowSeconds = 300`. Past that, the elimination pays **nobody**, including assisters (`RewardPolicy.Evaluate`). Pair history is per server and in memory.
@@ -181,3 +187,9 @@ Partial ownership only lowers the EV, because new items pay no compensation, so 
 - [x] Reveal displays only the server-committed result; reduced-motion path implemented (Studio verification pending).
 - [ ] Standalone economy simulation tool covering earning rates and spend over time (ECO-07; not built).
 - [ ] Owner decision on the sink margin (§6).
+
+## 8. Tutorial reward (implemented, Phase 4)
+
+`Config.Tutorial.Reward` (SPEC): 500 coins and one Basic Crate. `TutorialService` calls `EconomyService.GrantTutorialReward` when the tutorial's Coins step completes (D-036). That function runs one transaction, `tutorial-reward`, which fails with `AlreadyClaimed` if `Tutorial.RewardClaimed` is already true, and otherwise sets `RewardClaimed`, credits 500 earned coins (also counted in `Stats.CoinsEarned`), and adds one token to `CrateTokens.basic`. It is audited as `TutorialRewardGranted` and announced with a `Reward` message (reason `Tutorial`). The fixed transaction id and the flag, written in the same transaction, together make the reward claimable exactly once per account, including across replays and servers. The hourly match-reward cap does not apply to it.
+
+Economic impact: a one-time 500 coins plus one Basic Crate (expected value 245 coins if every item were already owned) per account.

@@ -7,6 +7,10 @@ Every asset used by the experience, with its source and licence. **No Roblox ass
 | ID | Asset | Where | Replaced by | Blocking phase |
 |---|---|---|---|---|
 | DEV-MAP-001 | "Foundry Yard" greybox arena, generated from data | `src/server/Maps/DevArena.luau` | Studio-authored maps in `ServerStorage.Maps` using the tag contract in MAP_DESIGN.md | Phase 9 |
+| DEV-MAP-002 | "Outpost Yard" greybox arena (duels, Team Deathmatch), generated from data | `src/server/Maps/DevOutpost.luau` | Authored "Outpost" desert base (spec §17 map 3) | Phase 9 |
+| DEV-MAP-003 | "Crossblade Hub" greybox social hub, generated from data | `src/server/Maps/DevHub.luau` | Authored modern stylized hub (spec §18) | Phase 9 |
+| DEV-MARKER-001 | Neon panels for portals and stations, neon pickup shapes, invisible spawn and dummy-spot markers | `MapService.buildLayout` | Authored portal arches, kiosks and pickup models (must keep `CanQuery = false`) | Phase 9 |
+| DEV-DUMMY-001 | Primitive training dummy (torso, head, legs, stand, health billboard) | `TrainingService.build` | Authored training target model; hit detection keeps using the standardized hitbox | Phase 9 |
 | DEV-MODEL-001 | Primitive rifle model | `src/shared/Weapons/WeaponModels.luau` (`Rifle`) | Original rifle meshes per collectible | Phase 9 |
 | DEV-MODEL-002 | Primitive pistol model | same (`Pistol`) | Original pistol meshes | Phase 9 |
 | DEV-MODEL-003 | Primitive knife model | same (`Knife`) | Original knife meshes | Phase 9 |

@@ -242,13 +242,24 @@ function MapService.Info(_self: typeof(MapService), mapId: string): { Id: string
 	return source and { Id = source.Id, DisplayName = source.DisplayName }
 end
 
-function MapService.Load(self: typeof(MapService), mapId: string)
+function MapService.Load(_self: typeof(MapService), mapId: string)
 	local source = sources[mapId]
 	assert(source, `unknown map {mapId}`)
+	local model = if source.Model then source.Model:Clone() else buildLayout(source.Layout)
+	-- Validate BEFORE replacing the current map, so a broken map can never leave the server spawnless.
+	local spawnCount = 0
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("BasePart") and descendant:HasTag(MapService.Tags.Spawn) then
+			spawnCount += 1
+		end
+	end
+	if spawnCount == 0 then
+		model:Destroy()
+		error(`map {mapId} has no spawn points tagged {MapService.Tags.Spawn}`)
+	end
 	if currentMap then
 		currentMap:Destroy()
 	end
-	local model = if source.Model then source.Model:Clone() else buildLayout(source.Layout)
 	model:SetAttribute("MapId", source.Id)
 	model:SetAttribute("DisplayName", source.DisplayName)
 	currentMap = model
@@ -261,9 +272,6 @@ function MapService.Load(self: typeof(MapService), mapId: string)
 		Lighting.OutdoorAmbient = lighting.OutdoorAmbient
 	end
 	model.Parent = Workspace
-	if #self:GetSpawns() == 0 then
-		error(`map {mapId} has no spawn points tagged {MapService.Tags.Spawn}`)
-	end
 	log:Info("map loaded", { map = mapId })
 	MapService.MapChanged:Fire(mapId)
 end

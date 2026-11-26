@@ -36,13 +36,18 @@ Rarity always appears as **symbol + name + colour**, for example `✦ LEGENDARY`
 | Bottom-right | Ammo panel: weapon name, `magazine / reserve` (Danger when empty), reload progress bar. Shows `KNIFE` or `THROWN` for the knife slot. |
 | Centre | Crosshair (Cross, Dot or Circle; settings colour and size; blooms after firing and tightens when aiming). Hit marker on server confirmation only, gold for headshots. |
 | Around centre | Directional damage arcs at radius 110 pointing toward the attacker, fading over 1 s. |
-| Top-centre | Match bar: mode and map, timer (or "NEXT ROUND" during intermission), current leader. |
+| Top-centre | Match bar. Line 1: mode, map and, in team modes, `YOU: ALPHA` / `YOU: BRAVO`. Line 2 by phase: `SOCIAL HUB`, `WAITING FOR PLAYERS <n>/<needed>`, `STARTING IN <s>`, the match or round timer, `NEXT ROUND <s>` (duel), or `NEXT MATCH <m:ss>`. Line 3: Free-for-All leader; Team Deathmatch `ALPHA <a> - <b> BRAVO   FIRST TO <limit>`; duel `ROUND <r>   ALPHA <a> - <b> BRAVO   FIRST TO <n>`; hub "Weapons work on training dummies only". |
 | Top-right | Kill feed: up to 5 entries for 6 s each; `◎` marks headshots; entries involving you use the olive background. |
-| Top-left | SCORE, SETTINGS and COLLECTION buttons (y = 64, below the Roblox top bar), for touch and mouse users. Below them, a wallet panel: `◈ <coins>`, `LV <level>  <into>/<next> XP` (`MAX` at the level cap), and an XP progress bar. |
-| Centre overlays | Elimination panel (killer, weapon, killer HP, killer level, respawn countdown); killstreak announcement; "ELIMINATED <name>" toast; scoreboard (hold Tab or D-pad left) and round results during intermission. |
+| Top-left | SCORE, SETTINGS and COLLECTION buttons, then PLAY (hub) or HUB (arenas) from `LobbyController` (y = 64, below the Roblox top bar), for touch and mouse users. Below them, a wallet panel: `◈ <coins>`, `LV <level>  <into>/<next> XP` (`MAX` at the level cap), and an XP progress bar. |
+| Centre overlays | Elimination panel (killer, weapon, killer HP, killer level, and a respawn countdown, or "Spectating until the next round" in duels). Announcements: killstreaks, `ROUND <n>`, `<TEAM> WINS THE ROUND` / `ROUND DRAWN: REPLAYING`, and `VICTORY` or `<TEAM> WINS THE MATCH`. "ELIMINATED <name>" toast. Scoreboard (hold Tab or D-pad left) and match results during intermission; in team modes each row is prefixed `ALPHA · ` or `BRAVO · `. |
+| Bottom-right, above the ammo panel | Map vote panel during intermission (§12). |
+| Bottom-centre, above the slots | Spectator line in duels (§12). |
+| Right side | Tutorial panel in the hub (§11). |
 | Below the match bar | Notification toasts: pickups and rewards (green), info, warnings (amber, 6 s). Reward toasts read `+<coins> coins  +<XP> XP  (<reasons>)`. Level-ups show `LEVEL UP: LEVEL <n> (+<coins> coins)`. A capped grant adds a warning that the hourly match reward limit was reached. |
 
-Damage numbers (optional setting) float above targets in world space.
+Damage numbers (optional setting) float above targets in world space, including training dummies.
+
+**Teams are never shown by colour alone.** Team identity appears as the names Alpha and Bravo in the match bar, scoreboard and announcements. No team colour is used anywhere yet.
 
 **Disabled Roblox core UI:** Backpack, Health and PlayerList. Roblox's own menu, including reporting and blocking players, is left intact.
 
@@ -84,7 +89,7 @@ The window is a centred 820 × 560 panel with ARMORY and CRATES tabs and a CLOSE
 
 **Crates tab.** The left list shows active crates only, meaning crates that passed server validation, with price and category. Selecting one shows the detail view:
 - **Odds before purchase.** Every possible reward is listed with `<symbol> <RARITY>`, name, `OWNED → +<compensation>` when already owned, and its exact probability (`%.4g%%`). The list comes from `CrateOdds.Build`, the same function the server uses to select. The OPEN button is inside this view, so a purchase is always made with the odds on screen.
-- The price and the coins the player can actually spend are shown. If purchased coins are not usable (PolicyService, fail closed), a note explains that only match-earned coins can be used. The button reads `OPEN FOR ◈ <price>`, `NEED ◈ <n> MORE`, or `OPENING...`.
+- The price and the coins the player can actually spend are shown. If purchased coins are not usable (PolicyService, fail closed), a note explains that only match-earned coins can be used. The button reads `OPEN FREE (<n> TOKEN[S])` when the player holds free crate tokens for that crate (tokens are used first), otherwise `OPEN FOR ◈ <price>`, `NEED ◈ <n> MORE`, or `OPENING...`.
 
 **Reveal rules.**
 - The reveal shows only the server's result. There is no spinning reel, no sequence of near-miss items, and nothing chosen on the client.
@@ -103,14 +108,16 @@ Field of view (70–100), sensitivity (0.1–3.0), aim sensitivity (0.1–1.5), 
 | Combat HUD, health display, ammunition display, weapon selection | Implemented |
 | Kill feed, scoreboard | Implemented |
 | Settings | Implemented |
-| Main menu | Planned (LOB-01) |
-| Inventory, armory | Implemented in the Collection window (Studio verification pending); the physical lobby armory is planned (LOB-02) |
+| Main menu | Partial: the hub is the main menu (portals, stations) and the PLAY menu reaches every destination from the interface; a separate front-end menu is not planned |
+| Inventory, armory | Implemented in the Collection window, also opened from the hub's Armory station (Studio verification pending) |
 | Weapon customization (skins, charms, attachments) | Planned |
-| Crate shop, crate reveal (with reduced-animation path and odds disclosure) | Implemented in the Collection window (Studio verification pending); the lobby crate shop is planned (LOB-03) |
-| Matchmaking, party management, server browser | Planned (LOB-04, NET-01 to NET-03) |
+| Crate shop, crate reveal (with reduced-animation path and odds disclosure) | Implemented in the Collection window, also opened from the hub's Crate shop station (Studio verification pending) |
+| Matchmaking | Implemented as portals and the PLAY menu (public servers of each mode's place); cross-server queues are Phase 5 (NET-01) |
+| Party management, server browser | Planned (NET-02, NET-03) |
+| Map vote, duel spectating | Implemented (§12) |
 | Player profile, leaderboards, ranked progression | Planned (RNK-04, RNK-02) |
 | Battle pass, challenges, achievements | Planned (MON-03, PRG-04, PRG-02) |
-| Tutorial | Planned (LOB-06) |
+| Tutorial | Implemented (§11) |
 | Player reporting | Planned (SEC-03); Roblox's built-in report remains available meanwhile |
 | Administrative dashboard | Planned (SEC-02) |
 
@@ -120,3 +127,18 @@ Field of view (70–100), sensitivity (0.1–3.0), aim sensitivity (0.1–1.5), 
 3. Any animation must have a reduced-motion path.
 4. Never communicate state by colour alone.
 5. Gameplay-critical feedback (hit markers, eliminations) comes from server confirmation, not prediction.
+
+## 10. Hub interactions and travel (implemented: `LobbyController.luau`)
+
+- **Prompts.** Portals show a "Join <destination>" ProximityPrompt (12-stud range) and stations show "Open" or "Start Tutorial" (10 studs). Prompts use Roblox's standard prompt UI, so they work with keyboard (E), gamepad and touch.
+- **PLAY menu (hub).** A centred panel lists Free-for-All, Team Deathmatch, Duel 1v1 and Team Duel 2v2 from `Config.Places.PlayOrder`, plus CLOSE. In arenas the same button reads HUB and the panel offers RETURN TO HUB. The menu releases the cursor while open (`UIState.SetMenuOpen("Play", ...)`).
+- **Travel feedback.** `TeleportStatus` becomes a toast: `Joining <destination>...`, or a plain-language refusal (published game required, destination not published yet, finish the tutorial first, already joining, already here, teleport failed).
+
+## 11. Tutorial panel (implemented: `TutorialController.luau`, hub only)
+
+A 340 × 150 panel on the right shows `TUTORIAL <i>/12  •  <TITLE>` and the step's instruction text from `Config.Tutorial`. The coins step shows a CONTINUE button. EXIT TUTORIAL appears only for players who have already completed the tutorial (replays); first-time players cannot dismiss it. Client-checked steps complete automatically when the player does the thing: moves for 1 s, sprints and jumps; switches camera; equips the secondary and the knife; or approaches a portal or opens the travel flow.
+
+## 12. Map vote and spectating (implemented: `VoteController.luau`, `SpectatorController.luau`)
+
+- **Map vote.** During intermission a 300 × 170 panel titled VOTE FOR THE NEXT MAP lists each option as a button with its live vote count; the player's choice shows `✓` and the olive background, so the choice is not shown by colour alone. Votes can be changed until the timer ends.
+- **Spectating (duels).** While eliminated, the camera orbits a surviving participant (teammates first), and a line reads `SPECTATING <NAME>   •   FIRE / AIM to switch`.

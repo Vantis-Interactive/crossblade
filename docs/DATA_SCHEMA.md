@@ -45,7 +45,7 @@ Values are the defaults produced by `Schema.Default(userId, now)`.
 | `SchemaVersion` | integer | `2` | Migration driver | Phase 1 |
 | `CreatedAt` | number (os.time) | creation time | Support and analytics | Phase 1 |
 | `UpdatedAt` | number (os.time) | creation time; set on every save | Support and recovery | Phase 1 |
-| `Currency.Earned` | integer | `0` | Coins from match rewards, level rewards and duplicate compensation (spec §13: separate accounting). Credited only via `Wallet.CreditEarned` | Phase 3 (implemented) |
+| `Currency.Earned` | integer | `0` | Coins from match rewards, level rewards, duplicate compensation and the tutorial reward (spec §13: separate accounting). Credited only via `Wallet.CreditEarned` | Phase 3 (implemented) |
 | `Currency.Purchased` | integer | `0` | Coins bought with Robux. Spendable on crates only when policy-eligible (D-026). No product credits it yet. | Phase 7 |
 | `Progression.LifetimeXP` | integer | `0` | XP total; level is derived from it (`Leveling.Info`) | Phase 3 (implemented) |
 | `Progression.Level` | integer | `1` | Level; replicated to the `Level` player attribute on load and after each grant | Phase 3 (implemented) |
@@ -67,7 +67,7 @@ Values are the defaults produced by `Schema.Default(userId, now)`.
 | `Stats.KnivesThrown` / `KnivesHit` | integer | `0` | CombatService / ProjectileService | Phase 2 |
 | `Stats.DamageDealt` | number | `0` | CombatService / ProjectileService | Phase 2 |
 | `Stats.HighestKillstreak` | integer | `0` | MatchService | Phase 2 |
-| `Stats.Wins` / `Losses` / `MatchesPlayed` | integer | `0` | MatchService at round end (D-016) | Phase 2 |
+| `Stats.Wins` / `Losses` / `MatchesPlayed` | integer | `0` | MatchService at match end. Free-for-All: first place with ≥1 elimination wins (D-016). Team modes: the winning team's members win, the others lose, and a draw records neither | Phase 2/4 |
 | `Stats.CoinsEarned` / `CratesOpened` | integer | `0` | Economy statistics: every earned-coin credit, and every crate opened | Phase 3 (implemented) |
 | `WeaponStats` | map | `{}` | Per-weapon statistics | Planned (Phase 7; not yet used) |
 | `MatchHistory` | array | `{}` | Recent matches (must be bounded when implemented) | Phase 6 |
@@ -76,14 +76,17 @@ Values are the defaults produced by `Schema.Default(userId, now)`.
 | `Purchases.Receipts` | map | `{}` | Durable purchase records | Phase 7 |
 | `Entitlements` | map | `{}` | VIP, pass ownership and similar | Phase 7 |
 | `Settings` | `Settings` table | `Settings.Defaults()` | FOV, sensitivity, aim sensitivity, perspective, crosshair style/colour/size, reduced motion, damage numbers. Sanitized by the server on save. | Phase 2 |
-| `Tutorial.Completed` / `RewardClaimed` | boolean | `false` / `false` | One-time tutorial reward | Phase 4 |
+| `Tutorial.Completed` / `RewardClaimed` | boolean | `false` / `false` | `Completed` is set by TutorialService when the last step finishes; until then the hub refuses teleports (D-036). `RewardClaimed` is set inside the `tutorial-reward` transaction, so the reward is granted once | Phase 4 (implemented) |
 | `LoginRewards.LastClaimDay` / `Streak` | integer | `0` / `0` | Login rewards | Planned (Phase 7; not yet used) |
 | `Moderation.Warnings` | integer | `0` | Moderation status | Phase 8 |
-| `ProcessedTransactions` | map txId → os.time | `{}` | Idempotency record (`elim:`, `round:` and `crate:` ids; ECONOMY.md §1), bounded to `Config.Data.Limits.ProcessedTransactions = 200` | Phase 3 (implemented) |
-| `CrateHistory` | array of crate results | `{}` | **v2.** `{RequestId, CrateId, WeaponId, Rarity, Duplicate, Compensation, FromEarned, FromPurchased, Time}`, newest last, bounded to `Config.Economy.CrateHistoryLimit = 50`. Used to answer a replayed `OpenCrate` with the original result (D-027) | Phase 3 (implemented) |
+| `ProcessedTransactions` | map txId → os.time | `{}` | Idempotency record (`elim:`, `match:`, `crate:` and `tutorial-reward` ids; ECONOMY.md §1), bounded to `Config.Data.Limits.ProcessedTransactions = 200` | Phase 3 (implemented) |
+| `CrateHistory` | array of crate results | `{}` | **v2.** `{RequestId, CrateId, WeaponId, Rarity, Duplicate, Compensation, FromEarned, FromPurchased, UsedToken, Time}` (`UsedToken` since Phase 4), newest last, bounded to `Config.Economy.CrateHistoryLimit = 50`. Used to answer a replayed `OpenCrate` with the original result (D-027) | Phase 3 (implemented) |
 | `Economy.HourStart` / `HourCoins` / `HourXP` | integer | `0` / `0` / `0` | **v2.** Rolling-hour match-reward counters for the anti-farming caps (D-024). Persisted so server hopping does not reset them | Phase 3 (implemented) |
+| `CrateTokens` | map crateId → integer | `{}` | Free crate tokens. Granted only by the tutorial reward; spent by `OpenCrate` with `UseToken = true` inside the crate transaction (D-037). Added in Phase 4 **without a schema bump**: its default is safe, so `Reconcile` adds it to existing v2 records on load | Phase 4 (implemented) |
 
 Fields marked for a later phase exist now so that existing records already have the right shape. Later phases may also add fields through migrations or Reconcile.
+
+**Statistics are only written in progression modes.** CombatService, ProjectileService and MatchService update `Stats` only when the mode has `AwardsProgression = true` (`MatchService:TracksStats`, `MatchService.addStats`). Hub practice against training dummies and private matches never change persistent statistics (D-040).
 
 ## 3. Session locking
 

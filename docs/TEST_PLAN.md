@@ -22,7 +22,7 @@ Executed in this repository on 2026-11-26 with Lune 0.11.1, Selene 0.31.0, StyLu
 
 - `stylua --check src tests scripts`: pass
 - `selene src` and `selene tests`: 0 errors, 0 warnings
-- `lune run tests/run`: **192 passed, 0 failed, across 17 spec files**
+- `lune run tests/run`: **195 passed, 0 failed, across 17 spec files**
 - `rojo build` for the default project and all five places (hub, FFA, TDM, Duel 1v1, Team Duel 2v2): pass. `scripts/verify-place.luau`: pass for each place, including its `PlaceConfig` role and mode (21 server services; TutorialService boots only in the hub)
 
 Phase 3 economy guarantees were mutation-tested. Letting purchased coins bypass the policy check, skewing crate selection away from the disclosed odds, and doubling duplicate compensation were each caught by `Economy.spec`.

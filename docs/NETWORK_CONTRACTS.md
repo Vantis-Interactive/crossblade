@@ -43,6 +43,9 @@ Shared bounds used below: `MAX_WORLD = 20000` studs; `USER_ID = Integer(−1e12,
 | `SetLoadout` | RemoteEvent | 4 / 1 | InventoryController (Armory tab) |
 | `OpenCrate` | RemoteFunction | 3 / 1 | InventoryController (Crates tab OPEN button; one retry with the same RequestId) |
 | `GetEconomy` | RemoteFunction | 4 / 1 | InventoryController (retries every 1 s, up to 30 times, until a state arrives) |
+| `VoteMap` | RemoteEvent | 4 / 1 | VoteController (map vote panel button) |
+| `RequestTeleport` | RemoteEvent | 2 / 0.2 | LobbyController (portal prompt, PLAY / HUB menu) |
+| `TutorialAction` | RemoteEvent | 6 / 2 | TutorialController (client-checked steps, EXIT), LobbyController (Training station prompt sends `Start`) |
 
 ### FireWeapon
 
@@ -54,12 +57,13 @@ Shared bounds used below: `MAX_WORLD = 20000` studs; `USER_ID = Integer(−1e12,
 | `Origin` | `Vector3(20000)` (client's standardized head position) |
 | `Direction` | `Vector3(1.01)` (unit aim direction before spread) |
 | `Hits` | `Array(HitReport, 16)` |
-| `HitReport.TargetUserId` | `USER_ID` |
+| `HitReport.TargetUserId` | `Optional(USER_ID)` |
+| `HitReport.DummyId` | `Optional(Integer(1, 100000))`: a training dummy (`TrainingService`) |
 | `HitReport.Position` | `Vector3(20000)` |
 | `HitReport.Zone` | `Enum{Head, Body}` |
 | `HitReport.Pellet` | `Integer(1, 16)` |
 
-Server checks after the schema (`CombatService.onFire`): the shooter is alive and `MatchService:IsCombatAllowed`. `Slot` must equal the server-equipped slot; otherwise the server sends a `LoadoutState` resync. The equip delay must have elapsed, with 0.08 s tolerance. The firearm is resolved from the server loadout (`UnownedWeapon` signal if none). Fire cadence must pass (`ImpossibleFireRate` on `RateExceeded`). The server consumes ammunition (resync on failure) and ends spawn protection. `ShotFired` is broadcast. The rewind time must be valid (`InvalidShot` / `FutureTimestamp`). `#Hits ≤ Pellets` (`TooManyPellets`). For each hit: unique pellet index, target alive and in the match, then `HitValidator.ValidateShot` against the rewound target. Valid hits take server-computed damage through `DamageService.Apply`. Statistics are updated, and a `HitConfirmed` is sent when damage was dealt.
+Server checks after the schema (`CombatService.onFire`): the shooter is alive and `MatchService:IsCombatAllowed`. `Slot` must equal the server-equipped slot; otherwise the server sends a `LoadoutState` resync. The equip delay must have elapsed, with 0.08 s tolerance. The firearm is resolved from the server loadout (`UnownedWeapon` signal if none). Fire cadence must pass (`ImpossibleFireRate` on `RateExceeded`). The server consumes ammunition (resync on failure) and ends spawn protection. `ShotFired` is broadcast. The rewind time must be valid (`InvalidShot` / `FutureTimestamp`). `#Hits ≤ Pellets` (`TooManyPellets`). For each hit: unique pellet index; **exactly one** of `TargetUserId` / `DummyId` (otherwise `MalformedPayload` / `HitTargetAmbiguous`); a player target must pass `MatchService:CanDamage(shooter, target)` (both may fight, victim alive, opponents: never a teammate, never anyone in the hub); a dummy target must be alive. Then `HitValidator.ValidateShot` runs against the rewound player root, or the dummy's current root (dummies do not move). Valid player hits take server-computed damage through `DamageService.Apply`; valid dummy hits go through `TrainingService.ApplyHit` and never touch economy or statistics. Statistics change only when `MatchService:TracksStats()` is true (D-040). A `HitConfirmed` is sent when anything was hit.
 
 ### MeleeAttack
 
@@ -70,8 +74,9 @@ Server checks after the schema (`CombatService.onFire`): the shooter is alive an
 | `Origin` | `Vector3(20000)` |
 | `Direction` | `Vector3(1.01)` |
 | `TargetUserId` | `Optional(USER_ID)` |
+| `TargetDummyId` | `Optional(Integer(1, 100000))` |
 
-Server checks: alive and in the match; the knife is equipped and in hand; equip and melee cooldowns have elapsed (0.08 s tolerance). The cooldown is set from the attack's `CooldownSeconds`, spawn protection ends, and `MeleeSwing` is broadcast. If there is a target: valid rewind, then `HitValidator.ValidateMelee` (origin deviation, range + 1.5, cone + 15°, line of sight). Damage is the attack's configured value.
+Server checks: alive and in the match; the knife is equipped and in hand; equip and melee cooldowns have elapsed (0.08 s tolerance). The cooldown is set from the attack's `CooldownSeconds`, spawn protection ends, and `MeleeSwing` is broadcast. If `TargetDummyId` names a living dummy, `HitValidator.ValidateMelee` runs against the dummy's root from the attacker's current head, and a valid hit goes through `TrainingService.ApplyHit`. Otherwise, if there is a player target that passes `MatchService:CanDamage`: valid rewind, then `HitValidator.ValidateMelee` (origin deviation, range + 1.5, cone + 15°, line of sight). Damage is the attack's configured value.
 
 ### ThrowKnife
 
@@ -146,17 +151,18 @@ Any failure rejects the whole request, records a `LoadoutChangeRejected` securit
 |---|---|---|
 | `CrateId` | `String(32)` | Must be a crate that passed boot validation, otherwise `UnknownCrate` |
 | `RequestId` | `String(64)` | Length ≥ 8 and only `[A-Za-z0-9-]`, otherwise `BadRequest`. The client sends `HttpService:GenerateGUID(false)` |
+| `UseToken` | `Optional(Boolean)` | `true` spends one free crate token for this crate instead of coins (`NoToken` if there is none). No currency moves, so policy gating does not apply (D-037) |
 
 The handler also requires a loaded profile (`NotLoaded`). The roll is made on the server. The open runs as transaction `crate:{RequestId}` (ECONOMY.md §4). The return value is the RemoteFunction result:
 
 ```lua
 { Ok = true, Replayed = boolean, Result = {
 	RequestId, CrateId, WeaponId, Rarity, Duplicate = boolean, Compensation = int,
-	FromEarned = int, FromPurchased = int, Time = os.time,
+	FromEarned = int, FromPurchased = int, UsedToken = boolean, Time = os.time,
 } }
 -- or
 { Ok = false, Reason = "UnknownCrate" | "BadRequest" | "NotLoaded" | "InsufficientFunds"
-                     | "InsufficientEarnedFunds" | "AlreadyProcessed" | <mutation error> }
+                     | "InsufficientEarnedFunds" | "NoToken" | "AlreadyProcessed" | <mutation error> }
 ```
 
 `Replayed = true` means the RequestId had already been applied; the stored result from `CrateHistory` is returned and nothing is charged or granted. `AlreadyProcessed` is returned if the id was applied but its result has since rotated out of the 50-entry history. The client reports `NoResponse` locally if both invoke attempts return nil.
@@ -164,6 +170,31 @@ The handler also requires a loaded profile (`NotLoaded`). The roll is made on th
 ### GetEconomy
 
 Payload `{}`. Returns `nil` until the profile is loaded, otherwise the `EconomyState` payload (§3).
+
+### VoteMap
+
+| Field | Schema |
+|---|---|
+| `MapId` | `String(64)` |
+
+Accepted only during `Intermission` while a vote is open, for a loaded profile, and only for one of the offered options (`MapVote.Cast`). A player's later vote replaces the earlier one. Accepted votes mark the vote dirty; the batch loop broadcasts `MapVote` at most every 0.5 s.
+
+### RequestTeleport
+
+| Field | Schema |
+|---|---|
+| `Destination` | `Enum{Hub, FreeForAll, TeamDeathmatch, CasualDuel1v1, CasualDuelTeam}` |
+
+The client never sends a PlaceId. `PortalService` resolves the destination from `Config.Places.Destinations` and refuses, in this order: `UnknownDestination`; `AlreadyHere` (the destination's mode is this place's mode, or Hub from the hub); `NotLoaded`; `TutorialRequired` (hub only, tutorial not completed); `InProgress`; `Studio` (TeleportService does not work in Studio); `NotConfigured` (PlaceId is 0). Otherwise it sends `TeleportStatus` `Starting` and calls `TeleportService:TeleportAsync` with up to 3 attempts and backoff (`Config.Places.Teleport`). Teleport data `{ Destination, From }` is informational only: the destination place reads its mode from its own `PlaceConfig`.
+
+### TutorialAction
+
+| Field | Schema |
+|---|---|
+| `Action` | `Enum{Start, Complete, Exit}` |
+| `Step` | `Optional(Integer(1, 64))` |
+
+Hub only (`TutorialService`). `Start` begins a new session at step 1 (used for replays from the Training station). `Exit` ends the session only if the account has already completed the tutorial. `Complete` advances only if `Step` is the current step **and** that step is `Check = "Client"` (`TutorialProgress.ClientComplete`). Server-checked steps ignore client claims and advance only from server-observed events.
 
 ## 3. Server → client
 
@@ -178,13 +209,16 @@ Payloads as constructed at the call sites listed.
 | `MeleeSwing` | UnreliableRemoteEvent | everyone except the attacker | `CombatService.onMelee` |
 | `KillFeed` | RemoteEvent | all | `MatchService.onEliminated` |
 | `Eliminated` | RemoteEvent | victim | `MatchService.onEliminated` |
-| `MatchState` | RemoteEvent | all, or the joining player | `MatchService` (round start, round end, profile loaded) |
+| `MatchState` | RemoteEvent | all, or the joining player | `MatchService` (phase changes, match and round start and end, Team Deathmatch score changes, joins during Waiting/Countdown, profile loaded) |
 | `Scoreboard` | RemoteEvent | all | `MatchService` (batched, at most every 0.5 s when changed) |
-| `Announcement` | RemoteEvent | all | `MatchService` (killstreaks) |
+| `Announcement` | RemoteEvent | all | `MatchService` (killstreaks, duel round start and result, match winner) |
 | `Notification` | RemoteEvent | one player | `PickupService`, `PlayerDataService` (Studio ephemeral warning), `InventoryService` (loadout saved or rejected) |
 | `SettingsApplied` | RemoteEvent | one player | `PlayerDataService` (SaveSettings) |
 | `EconomyState` | RemoteEvent | one player | `EconomyService.PushState`: on profile load, after every applied grant, after crate opens, on `InventoryService.Changed` and `PolicyComplianceService.StatusChanged` |
-| `Reward` | RemoteEvent | one player | `EconomyService.Grant`, when an applied grant gave more than 0 coins or XP |
+| `Reward` | RemoteEvent | one player | `EconomyService.Grant` (when an applied grant gave more than 0 coins or XP) and `EconomyService.GrantTutorialReward` |
+| `MapVote` | RemoteEvent | all | `MatchService` batch loop, when votes changed (initial options arrive in `MatchState.Vote`) |
+| `TutorialState` | RemoteEvent | one player | `TutorialService` (profile load, start, every step change, exit) |
+| `TeleportStatus` | RemoteEvent | one player | `PortalService` (start, refusal, failure, `TeleportInitFailed`) |
 
 ### Payload shapes
 
@@ -198,7 +232,10 @@ LoadoutState = {
 	ServerTime = serverTime,
 }
 
-HitConfirmed = { Hits = { { TargetUserId, Damage, Zone = "Head" | "Body", Eliminated = boolean } } }
+HitConfirmed = { Hits = { {
+	TargetUserId?, TargetDummyId?,   -- exactly one is set
+	Damage, Zone = "Head" | "Body", Eliminated = boolean,  -- Eliminated = knocked down for dummies
+} } }
 
 DamageTaken = { FromUserId, FromPosition = Vector3?, Amount, Health }
 
@@ -207,22 +244,55 @@ ShotFired = { ShooterUserId, Origin = Vector3, Direction = Vector3, Pellets = in
 MeleeSwing = { AttackerUserId, Attack = "Slash" | "Stab" }
 
 KillFeed = {
-	KillerUserId?, KillerName?, VictimUserId, VictimName,
+	KillerUserId?, KillerName?, KillerTeam = "A" | "B" | nil,
+	VictimUserId, VictimName, VictimTeam = "A" | "B" | nil,
 	WeaponId?, Kind = "Firearm" | "Knife" | "ThrownKnife" | "Finished" | "Environment",
 	Headshot = boolean, AssistUserIds = { UserId },
 }
 
-Eliminated = { KillerUserId?, KillerName?, WeaponId?, KillerHealth?, KillerLevel?, RespawnAt = serverTime }
-
-MatchState = {
-	Mode = "FreeForAll", ModeName, Phase = "Active" | "Intermission", RoundId,
-	EndsAt = serverTime, MapName,
-	Results = { { Rank, Name, Eliminations, Deaths, Assists } }?,  -- top 10, intermission only
+Eliminated = {
+	KillerUserId?, KillerName?, WeaponId?, KillerHealth?, KillerLevel?,
+	RespawnAt = serverTime?,        -- nil in duels (no respawn within a round)
+	Spectating = boolean,           -- true in duels
 }
 
-Scoreboard = { Rows = { { Rank, UserId, Name, Eliminations, Deaths, Assists, Streak, Level, Ping } } }
+MatchState = {
+	Mode = modeId, ModeName, Kind = "Lobby" | "FreeForAll" | "TeamDeathmatch" | "Duel",
+	Phase = "Lobby" | "Waiting" | "Countdown" | "Active" | "RoundEnd" | "Intermission",
+	MatchId = int,
+	EndsAt = serverTime,            -- phase deadline; the round deadline while a duel round is active
+	MapName, MapId,
+	TeamScores = { A = int, B = int }?,                 -- team modes
+	ScoreLimit = int?,
+	Duel = { Round = int, Wins = { A = int, B = int }, RoundsToWin = int }?,
+	TeamSize = int?,                                    -- duels
+	RespawnEnabled = boolean,
+	PlayersNeeded = int, PlayerCount = int,             -- start threshold and loaded players
+	Results = { { Rank, Name, Team?, Eliminations, Deaths, Assists } }?,  -- top 16, intermission only
+	WinnerTeam = "A" | "B" | nil,                       -- intermission only
+	Vote = MapVoteState?,
+}
 
-Announcement = { Kind = "Killstreak", UserId, Name, Streak }
+MapVoteState = { Options = { { Id = mapId, DisplayName, Votes = int } }, EndsAt = serverTime }
+MapVote = MapVoteState
+
+Scoreboard = { Rows = { { Rank, UserId, Name, Team?, Eliminations, Deaths, Assists, Streak, Level, Ping } } }
+
+Announcement =
+	  { Kind = "Killstreak", UserId, Name, Streak }
+	| { Kind = "Round", Round = int, Wins = { A, B } }
+	| { Kind = "RoundResult", Team?, TeamName?, Draw = boolean, Wins = { A, B } }
+	| { Kind = "MatchWinner", Team, TeamName }
+
+TutorialState = {
+	Active = boolean, Index = int?, StepId = string?, Total = int,
+	Completed = boolean, RewardClaimed = boolean,
+}
+
+TeleportStatus =
+	  { Ok = true, Destination, Stage = "Starting" }
+	| { Ok = false, Destination?, Reason = "UnknownDestination" | "AlreadyHere" | "NotLoaded"
+	    | "TutorialRequired" | "InProgress" | "Studio" | "NotConfigured" | "Failed", Detail? }
 
 Notification = { Kind = "Pickup" | "Warning" | "Info", Text }
 
@@ -235,13 +305,14 @@ EconomyState = {
 	Owned = { weaponId },            -- sorted; only ids present in the catalog
 	Loadout = { Primary, Secondary, Knife },  -- active preset
 	ActiveCrates = { crateId },      -- crates that passed boot validation, in display order
+	CrateTokens = { [crateId] = int },  -- free crate tokens (tutorial reward)
 	RewardsEnabled = boolean,
 }
 
 Reward = {
 	Coins = int, XP = int,           -- amounts actually applied after hourly caps
 	Reasons = { "GunElimination" | "KnifeElimination" | "FinishedElimination" | "Headshot"
-	          | "Assist" | "Streak<n>" | "MatchCompleted" | "FirstPlace" },
+	          | "Assist" | "Streak<n>" | "MatchCompleted" | "FirstPlace" | "Victory" | "Tutorial" },
 	LevelsGained = int, LevelCoins = int, Level = int,
 	Capped = boolean,                -- true if the hourly cap reduced coins or XP
 }

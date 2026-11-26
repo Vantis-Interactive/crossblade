@@ -380,8 +380,17 @@ local function endIntermission()
 	if vote then
 		local winner = MapVote.Winner(vote, math.random)
 		vote = nil
+		local loaded = false
 		if winner and winner ~= mapService:CurrentId() then
-			mapService:Load(winner)
+			local ok, err = pcall(function()
+				mapService:Load(winner)
+			end)
+			if not ok then
+				log:Error("voted map failed to load; keeping the current map", { map = winner, error = err })
+			end
+			loaded = ok
+		end
+		if loaded then
 			-- The old map is gone: put everyone on the new one rather than letting them fall.
 			for _, player in loadedPlayers() do
 				if player.Character then

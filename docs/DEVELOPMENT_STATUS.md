@@ -4,7 +4,7 @@ _Last updated: 2026-11-26_
 
 ## Summary
 
-Phases 0–4 are implemented: the foundation, the combat slice, the economy and collection layer, and the hub, tutorial and casual modes. That last phase adds Team Deathmatch, 1v1 and team duels with spectating, map voting, and five buildable places. Their rules pass 192 automated tests. **It has not yet been played in Roblox Studio or on a live server.** This environment has no Roblox Studio, so the Roblox runtime behaviour of the services and controllers still needs the manual checks in TEST_PLAN.md §4 before Phase 2 can be signed off as "playable multiplayer verified".
+Phases 0–4 are implemented: the foundation, the combat slice, the economy and collection layer, and the hub, tutorial and casual modes. That last phase adds Team Deathmatch, 1v1 and team duels with spectating, map voting, and five buildable places. Their rules pass 195 automated tests. **It has not yet been played in Roblox Studio or on a live server.** This environment has no Roblox Studio, so the Roblox runtime behaviour of the services and controllers still needs the manual checks in TEST_PLAN.md §4 before Phase 2 can be signed off as "playable multiplayer verified".
 
 | Phase | State |
 |---|---|

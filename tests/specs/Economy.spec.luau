@@ -248,6 +248,48 @@ describe("Crate opening", function()
 		expect(data.Currency.Purchased).toBe(4850)
 	end)
 
+	it("a free crate token opens a crate without moving any currency", function()
+		local data = profile(0, 0)
+		data.CrateTokens.basic = 1
+		local result
+		local args = openArgs("basic", 0.5, "tok-1", false)
+		args.UseToken = true
+		local outcome = Transactions.Apply(data, "crate:tok-1", 1, 200, function(draft)
+			result = CrateOpening.Open(draft, args)
+		end)
+		expect(outcome).toBe("Applied")
+		expect(result.UsedToken).toBe(true)
+		expect(result.FromEarned + result.FromPurchased).toBe(0)
+		expect(data.CrateTokens.basic).toBe(0)
+		expect(data.Currency.Earned).toBe(if result.Duplicate then result.Compensation else 0)
+	end)
+
+	it("cannot open with a token that does not exist, and leaves coins untouched", function()
+		local data = profile(1000, 0)
+		local args = openArgs("basic", 0.5, "tok-2", false)
+		args.UseToken = true
+		local outcome, err = Transactions.Apply(data, "crate:tok-2", 1, 200, function(draft)
+			CrateOpening.Open(draft, args)
+		end)
+		expect(outcome).toBe("Failed")
+		expect(err).toBe("NoToken")
+		expect(data.Currency.Earned).toBe(1000)
+		expect(#data.CrateHistory).toBe(0)
+	end)
+
+	it("a token for one crate cannot open another", function()
+		local data = profile(0, 0)
+		data.CrateTokens.basic = 1
+		local args = openArgs("mythical", 0.5, "tok-3", false)
+		args.UseToken = true
+		local outcome, err = Transactions.Apply(data, "crate:tok-3", 1, 200, function(draft)
+			CrateOpening.Open(draft, args)
+		end)
+		expect(outcome).toBe("Failed")
+		expect(err).toBe("NoToken")
+		expect(data.CrateTokens.basic).toBe(1)
+	end)
+
 	it("keeps crate history bounded", function()
 		local data = profile(250 * 60)
 		for i = 1, 60 do

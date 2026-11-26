@@ -121,7 +121,7 @@ Pickups are not consumed by players at full health or by dead players. The picku
 Each player carries a **primary firearm, a secondary firearm and one knife**, and can switch at any time. Switching cancels an in-progress reload and applies the weapon's equip time.
 
 - **Implemented:** the starter loadout (Vanguard AR, Warden P9, Ranger Combat Knife). The server resolves the weapon in each slot from the player's saved preset **and** owned inventory. Unowned, unknown or wrong-slot weapons are replaced with the starter weapon and audited (`src/server/Domain/Loadout.luau`, tested). Clients only ever send slot names.
-- **Implemented (Phase 3):** editing the active preset in the Collection window's Armory tab. `InventoryService` validates ownership and slot; the change applies on the next spawn. **Planned:** multiple presets (purchasable extra presets in MONETIZATION.md) and the lobby armory (LOB-02).
+- **Implemented (Phase 3):** editing the active preset in the Collection window's Armory tab. `InventoryService` validates ownership and slot; the change applies on the next spawn. **Planned:** multiple presets (purchasable extra presets in MONETIZATION.md). The hub's Armory station opens the same tab (LOB-02, implemented).
 - **Ammunition:** limited magazine plus reserve, with manual reload (auto-reload when the magazine empties). Ammo pickups add one magazine per firearm, capped at the maximum reserve, and respawn after 15 s (D-015). Respawning restores the full starting loadout.
 
 Full statistics are in WEAPON_CATALOG.md.
