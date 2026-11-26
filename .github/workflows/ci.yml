@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo-installed tools
+        id: tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: tools-${{ runner.os }}-rojo7.7.1-lune0.11.1-stylua2.6.0-selene0.31.0
+
+      # Same pinned versions as rokit.toml. Built from crates.io so CI does not depend on
+      # GitHub release asset naming.
+      - name: Install toolchain
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          cargo install rojo --version 7.7.1 --locked
+          cargo install lune --version 0.11.1 --locked
+          cargo install stylua --version 2.6.0 --locked --features luau
+          cargo install selene --version 0.31.0 --locked --no-default-features --features roblox
+
+      - name: Verify
+        run: ./scripts/verify.sh

@@ -46,6 +46,8 @@ local scoreboardRows: { any } = {}
 local respawnAt: number? = nil
 local hitMarkerUntil = 0
 local bloom = 0
+local built = false
+local pendingSnapshot: { [string]: any }? = nil
 
 local function weaponName(weaponId: string?): string
 	local entry = weaponId and WeaponCatalog.Get(weaponId)
@@ -495,7 +497,7 @@ end
 
 local function updateLoadout()
 	local state = weapons.State
-	if state == nil then
+	if state == nil or not built then
 		return
 	end
 	for _, slot in WeaponCatalog.Slots do
@@ -674,6 +676,14 @@ local function applyMatch(state: any)
 	end
 end
 
+local function applySnapshot(snapshot: { [string]: any })
+	scoreboardRows = snapshot.Scoreboard or {}
+	if snapshot.Match then
+		applyMatch(snapshot.Match)
+	end
+	updateLoadout()
+end
+
 function HUDController.Init(_self: typeof(HUDController), registry: { [string]: any })
 	settings = registry.SettingsController
 	weapons = registry.WeaponController
@@ -681,17 +691,21 @@ function HUDController.Init(_self: typeof(HUDController), registry: { [string]: 
 	effects = registry.EffectsController
 
 	registry.SnapshotController.Loaded:Connect(function(snapshot)
-		scoreboardRows = snapshot.Scoreboard or {}
-		if snapshot.Match then
-			applyMatch(snapshot.Match)
+		-- Start functions run concurrently; the snapshot can arrive before the HUD is built.
+		if built then
+			applySnapshot(snapshot)
+		else
+			pendingSnapshot = snapshot
 		end
-		updateLoadout()
 	end)
 	weapons.Changed:Connect(updateLoadout)
 	weapons.Fired:Connect(function(spread: number)
 		bloom = math.min(14, bloom + 2 + spread)
 	end)
 	weapons.HitConfirmed:Connect(function(payload)
+		if not built then
+			return
+		end
 		local headshot = false
 		for _, hit in payload.Hits do
 			headshot = headshot or hit.Zone == "Head"
@@ -706,13 +720,13 @@ function HUDController.Init(_self: typeof(HUDController), registry: { [string]: 
 		end
 	end)
 	registry.InputController.Began:Connect(function(action: string)
-		if action == "Scoreboard" and match.Phase == "Active" then
+		if built and action == "Scoreboard" and match.Phase == "Active" then
 			renderScoreboard(scoreboardRows, "SCOREBOARD")
 			ui.Scoreboard.Visible = true
 		end
 	end)
 	registry.InputController.Ended:Connect(function(action: string)
-		if action == "Scoreboard" and match.Phase == "Active" then
+		if built and action == "Scoreboard" and match.Phase == "Active" then
 			ui.Scoreboard.Visible = false
 		end
 	end)
@@ -730,7 +744,12 @@ function HUDController.Start(_self: typeof(HUDController))
 	})
 	buildCrosshair()
 	buildPanels()
+	built = true
 	updateLoadout()
+	if pendingSnapshot then
+		applySnapshot(pendingSnapshot)
+		pendingSnapshot = nil
+	end
 
 	local scale = gui:FindFirstChildOfClass("UIScale") :: UIScale
 	local function rescale()

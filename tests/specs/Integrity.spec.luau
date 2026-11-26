@@ -75,7 +75,6 @@ end
 
 describe("Source integrity", function()
 	it("every file compiles with the Luau compiler", function()
-		local luau = require("@lune/fs") and nil
 		local failures = {}
 		local compiler = Runtime.Compile
 		for _, path in files do
@@ -88,7 +87,6 @@ describe("Source integrity", function()
 			error(table.concat(failures, "\n"))
 		end
 		expect(#files).toBeGreaterThan(40)
-		local _ = luau
 	end)
 
 	it("every script-relative and ReplicatedStorage require resolves to a ModuleScript", function()

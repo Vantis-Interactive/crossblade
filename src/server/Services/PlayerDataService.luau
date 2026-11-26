@@ -198,7 +198,8 @@ function PlayerDataService.Start(_self: typeof(PlayerDataService))
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	Players.PlayerRemoving:Connect(release)
 	for _, player in Players:GetPlayers() do
-		task.spawn(onPlayerAdded, player)
+		-- Deferred so every service has finished Start before the first ProfileLoaded fires.
+		task.defer(onPlayerAdded, player)
 	end
 	game:BindToClose(function()
 		shuttingDown = true

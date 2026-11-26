@@ -265,9 +265,8 @@ function MatchService.Init(_self: typeof(MatchService), registry: { [string]: an
 			Scoreboard = scoreboardRows(),
 		}
 	end)
-end
 
-function MatchService.Start(_self: typeof(MatchService))
+	-- Connected in Init (not Start) so no profile load or elimination can fire before we listen.
 	damage.Eliminated:Connect(onEliminated)
 
 	playerData.ProfileLoaded:Connect(function(player: Player)
@@ -275,7 +274,9 @@ function MatchService.Start(_self: typeof(MatchService))
 		if phase == "Active" then
 			entryFor(player)
 		end
-		spawns:Spawn(player, mode.SpawnProtectionSeconds)
+		task.spawn(function()
+			spawns:Spawn(player, mode.SpawnProtectionSeconds)
+		end)
 	end)
 	Players.PlayerRemoving:Connect(function(player)
 		if entries[player.UserId] then
@@ -283,7 +284,9 @@ function MatchService.Start(_self: typeof(MatchService))
 			scoreboardDirty = true
 		end
 	end)
+end
 
+function MatchService.Start(_self: typeof(MatchService))
 	-- Scoreboard broadcasts are batched (at most twice per second) to bound network traffic.
 	task.spawn(function()
 		while true do
