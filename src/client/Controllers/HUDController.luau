@@ -319,14 +319,14 @@ local function buildPanels()
 
 	-- Top-left buttons (work on touch and gamepad)
 	Build.Button(
-		{ Text = "SCORE", Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(84, 32), Parent = gui },
+		{ Text = "SCORE", Position = UDim2.fromOffset(16, 64), Size = UDim2.fromOffset(84, 32), Parent = gui },
 		function()
 			ui.Scoreboard.Visible = not ui.Scoreboard.Visible
 		end
 	)
 	Build.Button({
 		Text = "SETTINGS",
-		Position = UDim2.fromOffset(106, 12),
+		Position = UDim2.fromOffset(106, 64),
 		Size = UDim2.fromOffset(100, 32),
 		Parent = gui,
 	}, function()
@@ -337,7 +337,7 @@ local function buildPanels()
 	ui.KillFeed = Build.New("Frame", {
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -16, 0, 12),
+		Position = UDim2.new(1, -16, 0, 64),
 		Size = UDim2.fromOffset(380, 180),
 		Parent = gui,
 	}, {
