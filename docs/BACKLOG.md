@@ -64,10 +64,22 @@ Ordered by dependency. Status: **Done** means implemented and covered by automat
 | ECO-10 | Sink-margin decision for crates (ECONOMY.md §4) | **Owner decision** |
 
 ## Phase 4: Lobby and casual modes
-LOB-01 social hub place · LOB-02 armory · LOB-03 crate shop · LOB-04 matchmaking portals · LOB-05 shooting range · LOB-06 tutorial · MOD-01 casual duels · MOD-02 Team Deathmatch · MOD-03 map voting. All Planned.
+
+| ID | Item | Status |
+|---|---|---|
+| LOB-01 | Social hub place: plaza, portals, stations, range, training zone, parkour (greybox) | Done, needs Studio verification |
+| LOB-02 | Armory station (opens Collection > Armory) | Done, needs Studio verification |
+| LOB-03 | Crate shop station (opens Collection > Crates) | Done, needs Studio verification |
+| LOB-04 | Matchmaking portals and PLAY menu (teleport to mode places) | Done; **needs published PlaceIds** to actually teleport |
+| LOB-05 | Shooting range with training dummies | Done, needs Studio verification |
+| LOB-06 | Guided tutorial (12 steps, one-time reward, required before matches) | Done (rules tested), needs Studio verification |
+| LOB-07 | VIP lounge, battle pass station, quest stations, leaderboards, weapon exhibitions, seasonal decorations, announcements board, player profile inspection | Planned (Phases 6, 7, 12; they depend on those systems) |
+| MOD-01 | Casual duels 1v1 and team (2v2 place; 3v3/4v4 via TeamSize) with spectating | Done (rules tested), needs Studio verification |
+| MOD-02 | Team Deathmatch | Done (rules tested), needs Studio verification |
+| MOD-03 | Map voting between matches (second greybox map added) | Done (rules tested), needs Studio verification |
 
 ## Phase 5: Multiplayer infrastructure
-NET-01 MemoryStore queues · NET-02 parties (up to 8) · NET-03 server browser · NET-04 reserved servers and teleport recovery · NET-05 reconnection · NET-06 private matches (no progression; flag already modelled in `GameModes.Private`) · NET-07 input remapping UI. All Planned.
+NET-01 MemoryStore queues · NET-02 parties (up to 8) · NET-03 server browser · NET-04 reserved servers and teleport recovery (basic retry and failure recovery done in PortalService) · NET-05 reconnection · NET-06 private matches (no progression; flag already modelled in `GameModes.Private`) · NET-07 input remapping UI. All Planned.
 
 ## Phase 6: Competitive
 RNK-01 rating system · RNK-02 divisions · RNK-03 ranked matchmaking · RNK-04 leaderboards · RNK-05 spectator · RNK-06 match history · RNK-07 anti-boosting and abandonment penalties · RNK-08 projectile rewind (D-011). All Planned.

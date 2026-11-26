@@ -2,7 +2,7 @@
 
 Crossblade (working title, see docs/DECISIONS.md D-001) is a fast-paced, skill-based multiplayer PvP arena game for Roblox with guns and knives. It is free-to-play, has no pay-to-win mechanics, and uses non-graphic combat.
 
-**Status:** Phases 0–3 are implemented: the foundation, a server-authoritative Free-for-All combat slice, and the economy and collection layer (coins, XP and levels, inventory and loadouts, crates). Their rules pass the automated suite. It has **not yet been playtested in Roblox Studio**. See [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md).
+**Status:** Phases 0–4 are implemented: the foundation, the server-authoritative combat slice, the economy and collection layer, and the social hub. The hub phase adds the tutorial, Team Deathmatch, casual duels and map voting, across five buildable places. Their rules pass the automated suite. It has **not yet been playtested in Roblox Studio**. See [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md).
 
 ## Quick start
 
@@ -30,10 +30,16 @@ Live-sync into Studio (then connect with the Rojo Studio plugin):
 rojo serve
 ```
 
-Or build a place file:
+Or build a place file (the default project is a Free-for-All arena):
 
 ```bash
 mkdir -p build && rojo build -o build/crossblade.rbxl
+```
+
+Each place has its own project (`hub`, `ffa`, `tdm`, `duel1v1`, `duel2v2`):
+
+```bash
+rojo build places/hub.project.json -o build/hub.rbxl
 ```
 
 In Studio, set Game Settings > Avatar to **R15**, enable **Studio Access to API Services** for persistence, then use **Test > Start Server** with 2 or more players. Without API access, the game runs in an explicit non-persistent Studio mode (D-009).
@@ -54,6 +60,8 @@ In Studio, set Game Settings > Avatar to **R15**, enable **Studio Access to API 
 | Scoreboard | Tab (hold) | D-pad left | SCORE |
 | Settings | P | Select | SETTINGS |
 | Collection (armory, crates) | I | D-pad up | COLLECTION |
+| Play / leave match | none | none | PLAY / HUB |
+| Interact (portal, station) | E | X (prompt) | tap prompt |
 
 ## Documentation
 

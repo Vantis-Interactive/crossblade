@@ -33,6 +33,17 @@ Architecture and design decisions, newest last. Each entry records the context, 
 | D-027 | Crate idempotency via a client RequestId and CrateHistory | Accepted |
 | D-028 | Phase 3 placeholder collectible content | Accepted (temporary) |
 | D-029 | Free-for-All first place awards XP only | Proposed: **Needs owner approval** |
+| D-030 | Multiple places from one codebase via PlaceConfig and per-place projects | Accepted |
+| D-031 | One generic MatchService; the hub runs a non-scoring Lobby mode | Accepted |
+| D-032 | MinPlayers is a start threshold; capacity is the place server size | Proposed: **Needs owner approval** |
+| D-033 | Duel round time limit and tie-breaks | Proposed: **Needs owner approval** |
+| D-034 | Duel overflow and late joiners spectate until the next match | Accepted |
+| D-035 | Map vote: up to 3 maps excluding the current one; ties random | Accepted |
+| D-036 | Tutorial reward at the Coins step; first-timers must finish before portals | Accepted |
+| D-037 | Tutorial crate delivered as a free crate token | Accepted |
+| D-038 | Teleports rely on the session-lock retry at the destination | Accepted (revisit in Phase 5) |
+| D-039 | Team victory XP equals first-place XP | Proposed: **Needs owner approval** |
+| D-040 | Hub practice and non-progression modes never change persistent statistics | Accepted |
 
 ---
 
@@ -162,3 +173,40 @@ Every crate passes boot-time validation; each one's expected duplicate compensat
 ### D-029: Free-for-All first place awards XP only
 **Context.** The specification gives duel and Team Deathmatch victory coins but nothing for Free-for-All.
 **Decision.** First place with at least one elimination earns 250 XP and `FreeForAllFirstPlace = 0` coins until a value is approved.
+
+### D-030: Multiple places from one codebase via PlaceConfig and per-place projects
+**Context.** The specification calls for one experience with a hub and separate arena places per mode.
+**Decision.** `places/*.project.json` build five places (hub, FFA, TDM, Duel 1v1, Team Duel 2v2) from the same `src/`. Each adds a `ReplicatedStorage.PlaceConfig` Configuration with `Role`, `Mode` and optionally `TeamSize`, which `Shared/PlaceConfig` reads. Services and controllers may declare `Roles`; `Main` filters on them. `default.project.json` stays a Free-for-All arena.
+**Consequences.** One codebase and one test suite serve every place. 3v3 and 4v4 team duels are new project files with a different `TeamSize`, and need no code changes.
+
+### D-031: One generic MatchService; the hub runs a non-scoring Lobby mode
+**Decision.** Phases, teams, rounds and voting are driven by `Config.GameModes[...].Kind`. In the hub, `Lobby` mode keeps every combat system running for practice. `CanDamage` is always false for players, so weapons only affect training dummies.
+
+### D-032: MinPlayers is a start threshold; capacity is the place server size
+**Context.** Team Deathmatch "supports 5v5 and 8v8". Requiring 10 players to start would make small servers unplayable.
+**Decision.** TDM starts with 2 players and keeps balancing teams as people join. 5v5 and 8v8 are separate places with Roblox server sizes of 10 and 16. **Needs owner approval.**
+
+### D-033: Duel round time limit and tie-breaks
+**Decision.** Rounds last 120 s (1v1) or 150 s (team). At the limit, the team with more survivors wins, then the team with more total health. A full tie replays the round. **Needs owner approval.**
+
+### D-034: Duel overflow and late joiners spectate until the next match
+**Decision.** When a duel starts, players beyond `2 × TeamSize` spectate. So does anyone joining mid-match. They enter the next match in join order.
+
+### D-035: Map vote: up to 3 maps excluding the current one; ties random
+**Decision.** `Domain/MapVote` offers up to 3 eligible maps other than the current one, falling back to the current map when it is the only one. Each player has one vote and can change it. Ties, including no votes at all, are broken randomly.
+
+### D-036: Tutorial reward at the Coins step; first-timers must finish before portals
+**Context.** The specification says first-time players must complete the tutorial, and that steps 10–11 teach crate opening and loadout customization.
+**Decision.** The reward is granted once, when the "Coins" step completes, so the later steps can teach spending it. `PortalService` refuses hub teleports until `Tutorial.Completed`. Combat steps complete only from server-observed events.
+
+### D-037: Tutorial crate delivered as a free crate token
+**Decision.** "One Basic Crate" is stored as `CrateTokens.basic += 1`. Opening with a token moves no currency, so it is not a paid randomized purchase and needs no policy gate.
+
+### D-038: Teleports rely on the session-lock retry at the destination
+**Decision.** The profile is released on `PlayerRemoving` as usual. The destination's `ProfileStore.Load` retries while the lock is still held, with up to 6 attempts and backoff. This avoids a release-then-teleport-fails gap. Phase 5 reserved-server matchmaking may add an explicit handoff.
+
+### D-039: Team victory XP equals first-place XP
+**Decision.** TDM and duel winners receive `Experience.FirstPlace` (250 XP) plus the specified victory coins (150 and 100). **Needs owner approval.**
+
+### D-040: Hub practice and non-progression modes never change persistent statistics
+**Decision.** `MatchService.TracksStats()` returns the mode's `AwardsProgression`. Combat, projectile and match statistics are written only when it is true, so dummy practice cannot inflate accuracy and private matches cannot change stats.

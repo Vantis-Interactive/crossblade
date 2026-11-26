@@ -33,13 +33,14 @@ src/
                          Transactions (idempotent atomic mutations), DataStoreAdapter
     Domain/              pure server rules: HitValidator, DamageLedger, SpawnSelector,
                          MovementValidator, SuspicionScore, PickupState, MatchRules, Loadout,
-                         CrateOpening, RewardPolicy, PaidRandomPolicy
-    Services/            18 services (section 4)
-    Maps/DevArena.luau   temporary greybox layout (DEV-MAP-001)
+                         CrateOpening, RewardPolicy, PaidRandomPolicy,
+                         Teams, DuelRounds, MapVote, TutorialProgress
+    Services/            21 services (section 4)
+    Maps/                temporary greybox layouts: DevArena, DevOutpost, DevHub (DEV-MAP-001..003)
   client/                -> StarterPlayerScripts.Client
     Main.client.luau     boot
     Core/                Net (client wrapper), UIState
-    Controllers/         13 controllers (section 5)
+    Controllers/         17 controllers (section 5)
     UI/Build.luau        themed UI construction helpers
   character/Health.server.luau  -> StarterCharacterScripts.Health (disables default regeneration)
 tests/                   Lune test runtime, harness, specs
@@ -80,7 +81,10 @@ docs/                    this documentation set
 | InventoryService | Ownership queries, validated loadout presets | Net, PlayerDataService, AuditService |
 | ProgressionService | XP and levels inside economy transactions; Level attribute | PlayerDataService |
 | EconomyService | Wallet state, match rewards (anti-farming, hourly caps), `EconomyState`/`Reward` | Net, PlayerDataService, MatchService, ProgressionService, InventoryService, PolicyComplianceService, AuditService |
-| CrateService | Crate validation at boot, server RNG, atomic idempotent opening | Net, PlayerDataService, EconomyService, PolicyComplianceService, AuditService |
+| CrateService | Crate validation at boot, server RNG, atomic idempotent opening (coins or tokens) | Net, PlayerDataService, EconomyService, PolicyComplianceService, AuditService |
+| TrainingService | Training dummies at DummySpot markers (standard hitbox, reset after knockdown) | MapService |
+| PortalService | Portal and station prompts; whitelisted teleports with retry and failure recovery | Net, PlayerDataService, MapService, AuditService |
+| TutorialService (hub only) | Tutorial sessions, server-observed steps, one-time reward | Net, PlayerDataService, EconomyService, TrainingService, WeaponService, PickupService, CrateService, InventoryService, HealthService, AmmunitionService, AuditService |
 
 Services required by the directive but not yet built (MatchmakingService, RankedService, MonetizationService and the rest) are deliberately absent. No placeholder modules exist (directive §2.7); see BACKLOG.md.
 
@@ -120,7 +124,11 @@ Net.Violation(player, kind, remote, detail) ──► AntiCheatService:Report
 | NotificationController | Toast messages, reward and level-up notices |
 | InventoryController | Client mirror of wallet, level, inventory and loadout; crate and loadout requests |
 | ArmoryController | Collection window: Armory tab (owned weapons, stats, equip) and tab host |
-| CrateController | Crates tab: per-item odds before purchase, open, result reveal |
+| CrateController | Crates tab: per-item odds before purchase, open (coins or token), result reveal |
+| SpectatorController | Duel spectating of surviving players |
+| VoteController | Map vote panel during intermission |
+| LobbyController | Portal and station prompts, PLAY / HUB menu, teleport status |
+| TutorialController (hub only) | Tutorial panel and client-checked steps |
 
 ## 6. Combat flow (one rifle shot)
 
@@ -155,7 +163,17 @@ hit marker only on HitConfirmed
 
 ## 8. Places
 
-The directive calls for one experience with multiple places (hub, arenas, tutorial). Phase 2 has one place, the Free-for-All arena, built from `default.project.json`. The shared, server and client trees are written so later places can reuse them: MatchService takes its mode from `Config.GameModes`, and maps are discovered by tags. Multi-place layout and teleport flows are Phase 4–5 (LOB-xx, NET-xx).
+One experience, several places, one codebase (D-030):
+
+| Project | Role | Mode | Notes |
+|---|---|---|---|
+| `places/hub.project.json` | Hub | Lobby | Tutorial, portals, stations, range |
+| `places/ffa.project.json` | Arena | FreeForAll | Same as `default.project.json` plus PlaceConfig |
+| `places/tdm.project.json` | Arena | TeamDeathmatch | |
+| `places/duel1v1.project.json` | Arena | CasualDuel1v1 | |
+| `places/duel2v2.project.json` | Arena | CasualDuelTeam | `TeamSize = 2`; 3v3/4v4 are copies with another TeamSize |
+
+`ReplicatedStorage.PlaceConfig` (attributes `Role`, `Mode`, `TeamSize`, optional `Map`) is read by `Shared/PlaceConfig`. Modules may declare `Roles`, and both `Main` scripts skip modules that are not for the current role. The integrity tests check each role's module subset boots. Travel goes through `PortalService` to the PlaceIds in `Config.Places`. The tutorial runs inside the hub rather than in its own place: it needs the hub's range, pickups and stations.
 
 ## 9. Performance notes
 

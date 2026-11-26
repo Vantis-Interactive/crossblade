@@ -6,6 +6,7 @@
 |---|---|---|---|
 | Unit | Pure rule modules: combat math, ammo, knives, validation, spawn scoring, persistence, transactions, schema, config | Lune + `tests/lib/Harness` (TestEZ-style) | Locally and in CI (`lune run tests/run`) |
 | Map data | Greybox layout: marker counts, no pickup or spawn inside geometry, everything inside the perimeter | `tests/specs/DevArena.spec.luau` | Locally and in CI |
+| Mode rules | Team balancing, TDM outcome, duel rounds, forfeits and time limit, map voting, tutorial step machine and one-time reward, mode and place configuration | `tests/specs/Modes.spec.luau` | Locally and in CI |
 | Static integrity | All source, including Roblox-only code: Luau compilation, require-path resolution, declared dependencies, acyclic graphs, remote-name/contract agreement | `tests/specs/Integrity.spec.luau` | Locally and in CI |
 | Lint / format | Undefined globals, unused variables, suspicious patterns; formatting | Selene (`roblox_min` std, D-006), StyLua | Locally and in CI |
 | Build / structure | Rojo build succeeds; built place has the required instances and properties; no executable scripts in ReplicatedStorage | `rojo build`, `scripts/verify-place.luau` | Locally and in CI |
@@ -21,10 +22,12 @@ Executed in this repository on 2026-11-26 with Lune 0.11.1, Selene 0.31.0, StyLu
 
 - `stylua --check src tests scripts`: pass
 - `selene src` and `selene tests`: 0 errors, 0 warnings
-- `lune run tests/run`: **162 passed, 0 failed, across 16 spec files**
-- `rojo build`: pass; `scripts/verify-place.luau`: pass (18 server services)
+- `lune run tests/run`: **192 passed, 0 failed, across 17 spec files**
+- `rojo build` for the default project and all five places (hub, FFA, TDM, Duel 1v1, Team Duel 2v2): pass. `scripts/verify-place.luau`: pass for each place, including its `PlaceConfig` role and mode (21 server services; TutorialService boots only in the hub)
 
 Phase 3 economy guarantees were mutation-tested. Letting purchased coins bypass the policy check, skewing crate selection away from the disclosed odds, and doubling duplicate compensation were each caught by `Economy.spec`.
+
+Phase 4 added a signal-wiring integrity test. On its first run it found a real defect: `PickupService.PickupConsumed` was fired and connected but never declared, which would have stalled the tutorial's Pickups step at runtime. It was fixed, and removing the declaration again makes the test fail.
 
 The harness's ability to fail was checked with a deliberately failing spec. The integrity checks were mutation-tested: a bad server require, a bad client require, an undeclared registry dependency and an unknown remote were each injected and each was caught.
 
@@ -79,6 +82,15 @@ Setup: publish the place, set the avatar type to R15, enable Studio Access to AP
 | M-23 | Disconnect the network mid-open (Studio: pause the server), then resume | At most one charge; a retry returns the same result |
 | M-24 | Equip a crate weapon in the Armory, then respawn | The new weapon is in hand; its model is tinted by its collection |
 | M-25 | Rejoin after M-22 | Coins, inventory, crate history and loadout persisted |
+| M-26 | Hub (build/hub.rbxl), new account | Tutorial starts automatically; PLAY > any mode says "Finish the tutorial…" |
+| M-27 | Tutorial steps 1–12 | Each advances only by doing it; steps 4–8 need real hits, reloads, recovery and pickups; reward toast "+500 coins"; Crates tab shows "OPEN FREE (1 TOKEN)" |
+| M-28 | Shoot a player in the hub | No damage; dummies show damage numbers and reset after being knocked down |
+| M-29 | Replay the tutorial from the Training station | No second reward; EXIT available |
+| M-30 | TDM place (build/tdm.rbxl), 4 players | Teams Alpha/Bravo balanced; no friendly damage; team score climbs; first to 50 or time ends; victory toast "+150 coins" for winners |
+| M-31 | Duel 1v1 place, 2 players | Countdown; rounds; eliminated player spectates (FIRE/AIM switch); first to 3 wins; leaving forfeits |
+| M-32 | Team duel place, 5 players | 4 play 2v2 and the 5th spectates until the next match |
+| M-33 | Map vote at match end | Panel lists up to 3 maps; votes update live; winning map loads and everyone respawns on it |
+| M-34 | Published places with PlaceIds configured | Portals and PLAY teleport to the right place; a full or failed destination shows a failure message and the player stays playable |
 
 ## 5. Planned test additions by phase
 

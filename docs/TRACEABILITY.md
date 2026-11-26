@@ -47,7 +47,16 @@ Maps each major requirement in the master directive to its implementation and te
 | 15–16 | Prestige, achievements, mastery, challenges | Schema fields reserved | none | Planned (PRG-xx) |
 | 24 | Schema versioning with a real migration (v1 → v2) | `Data/Schema.Migrations[1]` | `Economy.spec` > "Schema v2 migration" | Done |
 | 17 | Map contract via tags; boundaries; pickups; stations | `MapService`, `Maps/DevArena`, `HealthService` kill height | `verify-place` (structure) | Done (1 greybox map; DEV-MAP-001) |
-| 18–19 | Hub, matchmaking, parties, teleports | not implemented | none | Planned (LOB-xx, NET-xx) |
+| 4 | Single experience, multiple places, shared code | `places/*.project.json`, `Shared/PlaceConfig`, `Roles` filtering in both `Main` scripts | `Integrity.spec` (per-role graphs), `verify-place` per place | Done |
+| 5 | Team Deathmatch (10 min, 50 kills, 5 s respawn, team and individual rewards) | `MatchService` (TeamDeathmatch kind), `Domain/Teams`, `EconomyService.onMatchFinished` | `Modes.spec` > Teams, `Foundation.spec` (mode values) | Done, Studio |
+| 5 | Casual duels 1v1 (best of 5) and team (best of 7); spectate until next round | `MatchService` (Duel kind), `Domain/DuelRounds`, `SpectatorController`, `CameraController.SpectateTarget` | `Modes.spec` > DuelRounds | Done, Studio |
+| 5 | Ranked duels, private matches | Config only (`Implemented = false`) | `Modes.spec` | Planned (Phases 5–6) |
+| 17 | Map voting between matches | `Domain/MapVote`, `MatchService.finishMatch/endIntermission`, `VoteController` | `Modes.spec` > MapVote | Done, Studio |
+| 17 | Standardized map modules and tags; multiple maps | `MapService`, `Maps/DevArena`, `Maps/DevOutpost`, `Maps/DevHub` | `DevArena.spec` (every map) | Done (3 greybox maps of 10) |
+| 18 | Hub: plaza, armory, crate shop, range, parkour, portals, tutorial entrance; no PvP | `Maps/DevHub`, Lobby mode (`MatchService.CanDamage`), `TrainingService`, `PortalService`, `LobbyController` | `Modes.spec` (mode config) | Done, Studio (VIP lounge, battle pass, quests, leaderboards planned) |
+| 18 | Every lobby destination reachable from the main interface | `LobbyController` PLAY menu, HUD COLLECTION and SETTINGS buttons | none | Done, Studio |
+| 19 | Teleports, failed teleport recovery, untrusted teleport data | `PortalService` (destination whitelist, retry, `TeleportInitFailed`) | none (needs published places, M-34) | Partial (matchmaking queues and parties: Phase 5) |
+| 27 | Guided tutorial (12 steps), reward once, replayable | `Config/Tutorial`, `Domain/TutorialProgress`, `TutorialService`, `TutorialController`, `EconomyService.GrantTutorialReward` | `Modes.spec` > TutorialProgress | Done, Studio |
 | 20 | Tactical UI, responsive, scalable text, reduced motion, controller navigation | `Config/Theme`, `UI/Build`, `HUDController` (UIScale), `SettingsController` (GuiService selection) | none | Combat HUD and settings done, Studio; other screens planned |
 | 21 | Audio | not implemented | none | **Blocked** (AUD-001/002) |
 | 22 | Persistent statistics | `Data/Schema.Stats`; updates in `CombatService`, `MatchService`, `ProjectileService` | `ProfileStore.spec` (persistence) | Partial (counters done; leaderboards planned) |
@@ -56,6 +65,5 @@ Maps each major requirement in the master directive to its implementation and te
 | 25 | Schema validation, rate limits, state validation, suspicion scoring, movement validation, security logging, no auto-ban on weak signals | `Core/Net`, `AntiCheatService`, `Domain/MovementValidator`, `Domain/SuspicionScore`, `AuditService`, `FeatureFlags.KickOnSuspicion = false` | `NetSchema.spec`, `Domain.spec` | Done (durable audit SEC-08 planned) |
 | 25 | No secrets in replicated modules | Architecture rule; `verify-place` checks no Scripts in ReplicatedStorage | `verify-place.luau` | Done |
 | 26 | Admin dashboard, RBAC | not implemented | none | Planned (SEC-01/02) |
-| 27 | Tutorial | not implemented | none | Planned (LOB-06) |
 | 31 | Performance targets | ARCHITECTURE.md §9 budgets | none | Not yet measured |
 | 33 | Documentation set | `docs/*`, `README.md` | none | Done |
