@@ -4,7 +4,7 @@ _Last updated: 2026-11-26_
 
 ## Summary
 
-Phases 0, 1 and 2 are implemented. The Free-for-All combat vertical slice is code-complete, and its rules pass 126 automated tests. **It has not yet been played in Roblox Studio or on a live server.** This environment has no Roblox Studio, so the Roblox runtime behaviour of the services and controllers still needs the manual checks in TEST_PLAN.md §4 before Phase 2 can be signed off as "playable multiplayer verified".
+Phases 0, 1 and 2 are implemented. The Free-for-All combat vertical slice is code-complete, and its rules pass 130 automated tests. **It has not yet been played in Roblox Studio or on a live server.** This environment has no Roblox Studio, so the Roblox runtime behaviour of the services and controllers still needs the manual checks in TEST_PLAN.md §4 before Phase 2 can be signed off as "playable multiplayer verified".
 
 | Phase | State |
 |---|---|

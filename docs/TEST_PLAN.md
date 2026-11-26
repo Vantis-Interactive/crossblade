@@ -5,6 +5,7 @@
 | Layer | What it covers | Tooling | Runs where |
 |---|---|---|---|
 | Unit | Pure rule modules: combat math, ammo, knives, validation, spawn scoring, persistence, transactions, schema, config | Lune + `tests/lib/Harness` (TestEZ-style) | Locally and in CI (`lune run tests/run`) |
+| Map data | Greybox layout: marker counts, no pickup or spawn inside geometry, everything inside the perimeter | `tests/specs/DevArena.spec.luau` | Locally and in CI |
 | Static integrity | All source, including Roblox-only code: Luau compilation, require-path resolution, declared dependencies, acyclic graphs, remote-name/contract agreement | `tests/specs/Integrity.spec.luau` | Locally and in CI |
 | Lint / format | Undefined globals, unused variables, suspicious patterns; formatting | Selene (`roblox_min` std, D-006), StyLua | Locally and in CI |
 | Build / structure | Rojo build succeeds; built place has the required instances and properties; no executable scripts in ReplicatedStorage | `rojo build`, `scripts/verify-place.luau` | Locally and in CI |
@@ -20,7 +21,7 @@ Executed in this repository on 2026-11-26 with Lune 0.11.1, Selene 0.31.0, StyLu
 
 - `stylua --check src tests scripts`: pass
 - `selene src` and `selene tests`: 0 errors, 0 warnings
-- `lune run tests/run`: **126 passed, 0 failed, across 14 spec files**
+- `lune run tests/run`: **130 passed, 0 failed, across 15 spec files**
 - `rojo build`: pass; `scripts/verify-place.luau`: pass (13 server services)
 
 The harness's ability to fail was checked with a deliberately failing spec. The integrity checks were mutation-tested: a bad server require, a bad client require, an undeclared registry dependency and an unknown remote were each injected and each was caught.

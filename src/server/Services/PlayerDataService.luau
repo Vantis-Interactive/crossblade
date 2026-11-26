@@ -92,9 +92,15 @@ local function createAdapter(): any
 		)
 		return studioEphemeralAdapter()
 	end
-	-- Live server without DataStore access: keep the real adapter; loads will fail closed and kick.
+	-- Live server without DataStore access: boot anyway with an adapter that refuses every request,
+	-- so each load fails closed (player kicked, nothing written) instead of aborting the whole server.
 	log:Error("DataStore initialisation failed on a live server", { error = adapterOrError })
-	return DataStoreAdapter.new(storeName)
+	local reason = tostring(adapterOrError)
+	return {
+		UpdateAsync = function()
+			error(`DataStore unavailable: {reason}`)
+		end,
+	}
 end
 
 local function kick(player: Player, reason: string)

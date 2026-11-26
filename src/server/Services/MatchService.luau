@@ -98,8 +98,12 @@ local function scoreboardRows(): { any }
 	return rows
 end
 
+local pendingRespawn: { [Player]: boolean } = {}
+
 local function spawnLater(player: Player, delaySeconds: number, forRound: number)
+	pendingRespawn[player] = true
 	task.delay(delaySeconds, function()
+		pendingRespawn[player] = nil
 		-- Combat is gated separately (IsCombatAllowed), so respawning during intermission is safe.
 		if roundId == forRound and player.Parent == Players then
 			spawns:Spawn(player, mode.SpawnProtectionSeconds)
@@ -279,6 +283,7 @@ function MatchService.Init(_self: typeof(MatchService), registry: { [string]: an
 		end)
 	end)
 	Players.PlayerRemoving:Connect(function(player)
+		pendingRespawn[player] = nil
 		if entries[player.UserId] then
 			entries[player.UserId] = nil
 			scoreboardDirty = true
@@ -294,6 +299,25 @@ function MatchService.Start(_self: typeof(MatchService))
 			if scoreboardDirty then
 				scoreboardDirty = false
 				net.FireAll("Scoreboard", { Rows = scoreboardRows() })
+			end
+		end
+	end)
+
+	-- Watchdog: a loaded player with no living character and no scheduled respawn (for example a
+	-- character removed by the engine without a counted death) is respawned rather than stranded.
+	task.spawn(function()
+		while true do
+			task.wait(2)
+			for _, player in Players:GetPlayers() do
+				local character = player.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				local stranded = character == nil or character.Parent == nil or humanoid == nil
+				if stranded and not pendingRespawn[player] and playerData:GetProfile(player) then
+					log:Warn("respawning stranded player", { player = player.UserId })
+					task.spawn(function()
+						spawns:Spawn(player, mode.SpawnProtectionSeconds)
+					end)
+				end
 			end
 		end
 	end)

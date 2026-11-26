@@ -47,6 +47,8 @@ All are emitted through `Shared/Util/Logger.luau` and visible in the Roblox Deve
 
 Symptoms: `StoreError` kicks on join ("Roblox data services are unavailable right now"), autosave failures, final-save failures.
 
+If the DataStore cannot even be initialized when a live server boots, the server still boots. It logs `DataStore initialisation failed on a live server`, and every profile load then fails closed: the player is kicked and nothing is written.
+
 1. Check the Roblox status page for DataStore incidents.
 2. **Do not** add fallbacks that let players play without a loaded profile. The fail-closed behaviour is what protects existing data (spec §24).
 3. Loaded players keep playing. Autosave retries every 60 s, and the lock stays valid for 300 s.
