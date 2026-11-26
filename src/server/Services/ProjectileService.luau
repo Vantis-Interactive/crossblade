@@ -46,6 +46,8 @@ local ProjectileService = {
 		"HealthService",
 		"MatchService",
 		"PlayerDataService",
+		"TrainingService",
+		"MapService",
 	},
 	DroppedTag = DROPPED_TAG,
 }
@@ -58,6 +60,7 @@ local damage: any
 local health: any
 local match: any
 local playerData: any
+local training: any
 
 local function remove(knife: Knife)
 	local index = table.find(knives, knife)
@@ -136,34 +139,61 @@ local function step(dt: number)
 				local limit = if worldHit then (worldHit.Position - knife.Position).Magnitude else length
 
 				local victim: Player? = nil
+				local victimDummy: any = nil
 				local victimHit: Hitbox.Hit? = nil
 				for _, player in Players:GetPlayers() do
 					local root = player ~= knife.Owner
 						and player.Character
 						and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-					if root and health:IsAlive(player) and match:IsCombatAllowed(player) then
+					if root and match:CanDamage(knife.Owner, player) then
 						local hit =
 							Hitbox.Raycast(Hitbox.Shape(root.CFrame), knife.Position, direction, limit)
 						if hit and (victimHit == nil or hit.Distance < victimHit.Distance) then
-							victim, victimHit = player, hit
+							victim, victimDummy, victimHit = player, nil, hit
 						end
 					end
 				end
+				for _, dummy in training:AliveDummies() do
+					local hit =
+						Hitbox.Raycast(Hitbox.Shape(dummy.Root.CFrame), knife.Position, direction, limit)
+					if hit and (victimHit == nil or hit.Distance < victimHit.Distance) then
+						victim, victimDummy, victimHit = nil, dummy, hit
+					end
+				end
 
-				if victim and victimHit then
+				if victimHit and (victim or victimDummy) then
 					local impact = knife.Position + direction * victimHit.Distance
-					if knife.Owner.Parent == Players and match:IsCombatAllowed(knife.Owner) then
-						local amount = DamageCalculator.ThrownKnife(knife.Stats, victimHit.Zone)
+					local amount = DamageCalculator.ThrownKnife(knife.Stats, victimHit.Zone)
+					if victimDummy and knife.Owner.Parent == Players then
+						local dealt, down =
+							training:ApplyHit(knife.Owner, victimDummy.Id, amount, "ThrownKnife")
+						net.Fire("HitConfirmed", knife.Owner, {
+							Hits = {
+								{
+									TargetDummyId = victimDummy.Id,
+									Damage = dealt,
+									Zone = victimHit.Zone,
+									Eliminated = down,
+								},
+							},
+						})
+					elseif
+						victim
+						and knife.Owner.Parent == Players
+						and match:CanDamage(knife.Owner, victim)
+					then
 						local dealt, eliminated = damage:Apply(knife.Owner, victim, amount, {
 							WeaponId = knife.WeaponId,
 							Kind = "ThrownKnife",
 							Zone = victimHit.Zone,
 						})
 						if dealt > 0 then
-							playerData:Update(knife.Owner, function(data)
-								data.Stats.KnivesHit += 1
-								data.Stats.DamageDealt += dealt
-							end)
+							if match:TracksStats() then
+								playerData:Update(knife.Owner, function(data)
+									data.Stats.KnivesHit += 1
+									data.Stats.DamageDealt += dealt
+								end)
+							end
 							net.Fire("HitConfirmed", knife.Owner, {
 								Hits = {
 									{
@@ -225,6 +255,12 @@ function ProjectileService.Init(_self: typeof(ProjectileService), registry: { [s
 	health = registry.HealthService
 	match = registry.MatchService
 	playerData = registry.PlayerDataService
+	training = registry.TrainingService
+	registry.MapService.MapChanged:Connect(function()
+		for index = #knives, 1, -1 do
+			remove(knives[index])
+		end
+	end)
 
 	folder = Instance.new("Folder")
 	folder.Name = "CrossbladeProjectiles"

@@ -5,6 +5,7 @@
 	mouse, touch and gamepad (slot buttons, scoreboard toggle, settings toggle).
 ]]
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -19,6 +20,7 @@ local Net = require(script.Parent.Parent.Core.Net)
 local Build = require(script.Parent.Parent.UI.Build)
 
 local Theme = Config.Theme
+local TEAM_NAMES = { A = "Alpha", B = "Bravo" }
 local C = Theme.Colors
 
 local HUDController = {
@@ -530,7 +532,7 @@ local function renderScoreboard(rows: { any }, title: string)
 		local color = if row.UserId == player.UserId then C.AccentBright else C.Text
 		line(index, {
 			tostring(row.Rank),
-			row.Name,
+			if row.Team then `{string.upper(TEAM_NAMES[row.Team] or row.Team)} · {row.Name}` else row.Name,
 			tostring(row.Eliminations),
 			tostring(row.Deaths),
 			tostring(row.Assists),
@@ -595,11 +597,35 @@ local function updateFrame(dt: number)
 		end
 	end
 
-	ui.MatchTitle.Text = `{string.upper(match.ModeName or "Free-for-All")}  •  {match.MapName or ""}`
-	if match.Phase == "Active" then
+	local myTeam = player:GetAttribute("Team")
+	local teamSuffix = if type(myTeam) == "string"
+		then `  •  YOU: {string.upper(TEAM_NAMES[myTeam] or myTeam)}`
+		else ""
+	ui.MatchTitle.Text =
+		`{string.upper(match.ModeName or "Free-for-All")}  •  {match.MapName or ""}{teamSuffix}`
+	local phase = match.Phase
+	if phase == "Lobby" then
+		ui.MatchTimer.Text = "SOCIAL HUB"
+	elseif phase == "Waiting" then
+		ui.MatchTimer.Text = `WAITING FOR PLAYERS {match.PlayerCount or 0}/{match.PlayersNeeded or 1}`
+	elseif phase == "Countdown" then
+		ui.MatchTimer.Text = `STARTING IN {math.max(0, math.ceil(match.EndsAt - now))}`
+	elseif phase == "Active" then
 		ui.MatchTimer.Text = formatTime(match.EndsAt - now)
+	elseif phase == "RoundEnd" then
+		ui.MatchTimer.Text = `NEXT ROUND {math.max(0, math.ceil(match.EndsAt - now))}`
 	else
-		ui.MatchTimer.Text = `NEXT ROUND {formatTime(match.EndsAt - now)}`
+		ui.MatchTimer.Text = `NEXT MATCH {formatTime(match.EndsAt - now)}`
+	end
+	if match.Duel then
+		local wins = match.Duel.Wins
+		ui.Leader.Text =
+			`ROUND {match.Duel.Round}   ALPHA {wins.A} - {wins.B} BRAVO   FIRST TO {match.Duel.RoundsToWin}`
+	elseif match.TeamScores then
+		ui.Leader.Text =
+			`ALPHA {match.TeamScores.A} - {match.TeamScores.B} BRAVO   FIRST TO {match.ScoreLimit or "-"}`
+	elseif phase == "Lobby" then
+		ui.Leader.Text = "Weapons work on training dummies only"
 	end
 
 	if respawnAt then
@@ -609,6 +635,8 @@ local function updateFrame(dt: number)
 			ui.Eliminated.Visible = false
 			respawnAt = nil
 		end
+	elseif ui.Eliminated.Visible and humanoid and humanoid.Health > 0 then
+		ui.Eliminated.Visible = false -- duel: back in for the next round
 	end
 	updateCrosshair(dt)
 end
@@ -767,9 +795,21 @@ function HUDController.Init(_self: typeof(HUDController), registry: { [string]: 
 		local headshot = false
 		for _, hit in payload.Hits do
 			headshot = headshot or hit.Zone == "Head"
-			local target = Players:GetPlayerByUserId(hit.TargetUserId)
-			if target then
-				effects:DamageNumber(target, hit.Damage, hit.Zone == "Head")
+			if hit.TargetDummyId then
+				for _, model in CollectionService:GetTagged("Crossblade.Dummy") do
+					if
+						model:IsA("Model")
+						and model.PrimaryPart
+						and model:GetAttribute("DummyId") == hit.TargetDummyId
+					then
+						effects:DamageNumber(model.PrimaryPart.Position, hit.Damage, hit.Zone == "Head")
+					end
+				end
+			else
+				local target = Players:GetPlayerByUserId(hit.TargetUserId)
+				if target then
+					effects:DamageNumber(target, hit.Damage, hit.Zone == "Head")
+				end
 			end
 		end
 		hitMarkerUntil = os.clock() + 0.15
@@ -847,6 +887,20 @@ function HUDController.Start(_self: typeof(HUDController))
 				then "YOU ARE"
 				else `{string.upper(payload.Name)} IS`
 			flash(ui.Announcement, `{who} ON A {payload.Streak}-ELIMINATION STREAK`, 2.5)
+		elseif payload.Kind == "Round" then
+			flash(ui.Announcement, `ROUND {payload.Round}`, 2)
+		elseif payload.Kind == "RoundResult" then
+			local text = if payload.Draw
+				then "ROUND DRAWN: REPLAYING"
+				else `{string.upper(payload.TeamName)} WINS THE ROUND`
+			flash(ui.Announcement, text, 3)
+		elseif payload.Kind == "MatchWinner" then
+			local mine = payload.Team == player:GetAttribute("Team")
+			flash(
+				ui.Announcement,
+				if mine then "VICTORY" else `{string.upper(payload.TeamName)} WINS THE MATCH`,
+				4
+			)
 		end
 	end)
 	Net.On("Eliminated", function(payload)
@@ -859,6 +913,9 @@ function HUDController.Start(_self: typeof(HUDController))
 			ui.ElimDetail.Text = "Out of bounds"
 		end
 		respawnAt = payload.RespawnAt
+		if payload.Spectating then
+			ui.ElimRespawn.Text = "Spectating until the next round"
+		end
 		ui.Eliminated.Visible = true
 	end)
 	Net.On("DamageTaken", function(payload)

@@ -137,7 +137,18 @@ describe("Source integrity", function()
 				for ref in string.gmatch(source, "registry%.(%w+)") do
 					used[ref] = true
 				end
-				table.insert(modules, { Name = name, Dependencies = deps, Used = used, Path = path })
+				local roles = nil
+				local rolesBlock = string.match(source, "\n%s*Roles = (%b{})")
+				if rolesBlock then
+					roles = {}
+					for role in string.gmatch(rolesBlock, '"(%w+)"') do
+						table.insert(roles, role)
+					end
+				end
+				table.insert(
+					modules,
+					{ Name = name, Dependencies = deps, Used = used, Path = path, Roles = roles }
+				)
 			end
 		end
 		return modules
@@ -166,9 +177,19 @@ describe("Source integrity", function()
 		if #failures > 0 then
 			error(table.concat(failures, "\n"))
 		end
-		-- Throws on cycles or unknown dependencies.
-		local ordered = Loader.Sort(modules)
-		expect(#ordered).toBe(#modules)
+		-- Every place role must boot: the role's module subset has no cycles or missing dependencies.
+		for _, role in { "Hub", "Arena" } do
+			local subset = {}
+			for _, module in modules do
+				if module.Roles == nil or table.find(module.Roles, role) then
+					table.insert(subset, module)
+				end
+			end
+			local ok, err = pcall(Loader.Sort, subset)
+			if not ok then
+				error(`role {role}: {err}`)
+			end
+		end
 	end
 
 	it("server services declare every registry dependency they use, with no cycles", function()
@@ -219,6 +240,85 @@ describe("Source integrity", function()
 		end
 		for name in Contracts.ServerToClient do
 			expect(used[name]).toBe(true)
+		end
+	end)
+end)
+
+describe("Signal wiring", function()
+	local fs = require("@lune/fs")
+	local function collect(directory, out)
+		for _, entry in fs.readDir(directory) do
+			local path = directory .. "/" .. entry
+			if fs.isDir(path) then
+				collect(path, out)
+			elseif string.match(entry, "%.luau$") then
+				table.insert(out, path)
+			end
+		end
+		return out
+	end
+	local files = collect(Runtime.Root .. "/src", {})
+
+	-- module name -> set of declared Signal fields
+	local declared = {}
+	local sources = {}
+	for _, path in files do
+		local source = fs.readFile(path)
+		sources[path] = source
+		local name = string.match(source, '\n%s*Name = "(%w+)"')
+		if name then
+			declared[name] = declared[name] or {}
+			for field in string.gmatch(source, "\n%s*(%w+) = Signal%.new%(%)") do
+				declared[name][field] = true
+			end
+		end
+	end
+
+	it("every Module.Signal:Fire targets a signal the module declares", function()
+		local failures = {}
+		for path, source in sources do
+			local name = string.match(source, '\n%s*Name = "(%w+)"')
+			if name then
+				for field in string.gmatch(source, name .. "%.(%w+):Fire%(") do
+					if not declared[name][field] then
+						table.insert(
+							failures,
+							`{path}: {name}.{field}:Fire but {field} is not declared as Signal.new()`
+						)
+					end
+				end
+			end
+		end
+		if #failures > 0 then
+			error(table.concat(failures, "\n"))
+		end
+	end)
+
+	it("every registry.Service.Signal:Connect targets a declared signal", function()
+		local failures = {}
+		for path, source in sources do
+			for service, field in string.gmatch(source, "registry%.(%w+)%.(%w+):Connect%(") do
+				if declared[service] == nil or not declared[service][field] then
+					table.insert(
+						failures,
+						`{path}: registry.{service}.{field}:Connect has no matching Signal.new()`
+					)
+				end
+			end
+			-- Locals bound from the registry, e.g. `weapons = registry.WeaponService` then `weapons.X:Connect`.
+			for variable, service in string.gmatch(source, "\n%s*(%w+) = registry%.(%w+)\n") do
+				for field in string.gmatch(source, "\n%s*" .. variable .. "%.(%u%w+):Connect%(") do
+					if declared[service] == nil or not declared[service][field] then
+						table.insert(
+							failures,
+							`{path}: {variable}.{field}:Connect ({service}) has no matching Signal.new()`
+						)
+					end
+				end
+			end
+		end
+		if #failures > 0 then
+			error(table.concat(failures, "\n"))
 		end
 	end)
 end)

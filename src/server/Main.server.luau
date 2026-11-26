@@ -15,7 +15,16 @@ local log = Logger.new("Boot")
 -- Spawning is owned by SpawnService (also set in default.project.json).
 Players.CharacterAutoLoads = false
 
-local modules = Loader.RequireChildren(script.Parent.Services)
+local PlaceConfig = require(ReplicatedStorage.Shared.PlaceConfig)
+
+-- Services may declare Roles = { "Hub" } / { "Arena" }; services without Roles run everywhere.
+local modules = {}
+for _, module in Loader.RequireChildren(script.Parent.Services) do
+	local roles = (module :: any).Roles
+	if roles == nil or table.find(roles, PlaceConfig.Role) then
+		table.insert(modules, module)
+	end
+end
 table.insert(modules, require(script.Parent.Core.Net) :: any)
 
 local started = os.clock()
@@ -24,4 +33,9 @@ Loader.Boot(modules, {
 		log:Error(`{name}.Start failed`, { error = err })
 	end,
 })
-log:Info("server booted", { modules = #modules, ms = math.floor((os.clock() - started) * 1000) })
+log:Info("server booted", {
+	role = PlaceConfig.Role,
+	mode = PlaceConfig.Mode,
+	modules = #modules,
+	ms = math.floor((os.clock() - started) * 1000),
+})

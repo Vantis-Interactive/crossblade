@@ -57,6 +57,8 @@ local REASON_LABELS = {
 	Assist = "Assist",
 	MatchCompleted = "Match completed",
 	FirstPlace = "First place",
+	Victory = "Victory",
+	Tutorial = "Tutorial reward",
 }
 
 local function describeReasons(reasons: { string }): string

@@ -9,6 +9,7 @@
 	  - hit markers are shown only on server confirmation (HitConfirmed), never on prediction
 ]]
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -22,6 +23,7 @@ local Net = require(script.Parent.Parent.Core.Net)
 local UIState = require(script.Parent.Parent.Core.UIState)
 
 local SLOTS = { "Primary", "Secondary", "Knife" }
+local DUMMY_TAG = "Crossblade.Dummy" -- Server/Services/TrainingService
 
 local WeaponController = {
 	Name = "WeaponController",
@@ -92,25 +94,46 @@ local function canAct(): boolean
 end
 
 -- Nearest standardized-hitbox hit along a ray among other living players.
-local function castCharacters(
-	origin: Vector3,
-	direction: Vector3,
-	maxDistance: number
-): (Player?, Hitbox.Hit?)
-	local bestPlayer: Player? = nil
-	local bestHit: Hitbox.Hit? = nil
+export type Target = { Player: Player?, DummyId: number?, Root: CFrame }
+
+-- Everything this client may hit right now: living opponents (teammates excluded) and training dummies.
+local function targets(): { Target }
+	local list: { Target } = {}
+	local myTeam = player:GetAttribute("Team")
 	for _, other in Players:GetPlayers() do
 		local character = other ~= player and other.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-		if root and humanoid and humanoid.Health > 0 then
-			local hit = Hitbox.Raycast(Hitbox.Shape(root.CFrame), origin, direction, maxDistance)
-			if hit and (bestHit == nil or hit.Distance < bestHit.Distance) then
-				bestPlayer, bestHit = other, hit
-			end
+		local teammate = myTeam ~= nil and other:GetAttribute("Team") == myTeam
+		if root and humanoid and humanoid.Health > 0 and not teammate then
+			table.insert(list, { Player = other, Root = root.CFrame })
 		end
 	end
-	return bestPlayer, bestHit
+	for _, model in CollectionService:GetTagged(DUMMY_TAG) do
+		local root = model:IsA("Model") and model.PrimaryPart
+		local id = model:GetAttribute("DummyId")
+		if root and type(id) == "number" and model:GetAttribute("Alive") then
+			table.insert(list, { DummyId = id, Root = root.CFrame })
+		end
+	end
+	return list
+end
+
+-- Nearest standardized-hitbox hit along a ray among current targets.
+local function castCharacters(
+	origin: Vector3,
+	direction: Vector3,
+	maxDistance: number
+): (Target?, Hitbox.Hit?)
+	local best: Target? = nil
+	local bestHit: Hitbox.Hit? = nil
+	for _, target in targets() do
+		local hit = Hitbox.Raycast(Hitbox.Shape(target.Root), origin, direction, maxDistance)
+		if hit and (bestHit == nil or hit.Distance < bestHit.Distance) then
+			best, bestHit = target, hit
+		end
+	end
+	return best, bestHit
 end
 
 local function aimPoint(range: number): Vector3
@@ -234,10 +257,13 @@ local function fire(self: typeof(WeaponController))
 		local endPoint: Vector3
 		if target and hit then
 			endPoint = origin + pelletDirection * hit.Distance
-			table.insert(
-				hits,
-				{ TargetUserId = target.UserId, Position = endPoint, Zone = hit.Zone, Pellet = pellet }
-			)
+			table.insert(hits, {
+				TargetUserId = target.Player and target.Player.UserId,
+				DummyId = target.DummyId,
+				Position = endPoint,
+				Zone = hit.Zone,
+				Pellet = pellet,
+			})
 		else
 			endPoint = origin + pelletDirection * limit
 			if world then
@@ -280,23 +306,18 @@ local function melee(self: typeof(WeaponController), attack: "Slash" | "Stab")
 	local origin = headPosition(root)
 	local _, look = camera:GetAimRay()
 	local flatLook = Vector3.new(look.X, 0, look.Z)
-	local target: Player? = nil
+	local target: Target? = nil
 	local best = math.huge
-	for _, other in Players:GetPlayers() do
-		local character = other ~= player and other.Character
-		local otherRoot = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-		if otherRoot and humanoid and humanoid.Health > 0 then
-			local distance = Hitbox.DistanceToPoint(Hitbox.Shape(otherRoot.CFrame), origin)
-			local toTarget = otherRoot.Position - origin
-			local flat = Vector3.new(toTarget.X, 0, toTarget.Z)
-			local inCone = flat.Magnitude < 0.5
-				or flatLook.Magnitude < 0.01
-				or math.deg(math.acos(math.clamp(flat.Unit:Dot(flatLook.Unit), -1, 1)))
-					<= stats.ConeDegrees / 2
-			if distance <= stats.Range and inCone and distance < best then
-				best, target = distance, other
-			end
+	for _, candidate in targets() do
+		local distance = Hitbox.DistanceToPoint(Hitbox.Shape(candidate.Root), origin)
+		local toTarget = candidate.Root.Position - origin
+		local flat = Vector3.new(toTarget.X, 0, toTarget.Z)
+		local inCone = flat.Magnitude < 0.5
+			or flatLook.Magnitude < 0.01
+			or math.deg(math.acos(math.clamp(flat.Unit:Dot(flatLook.Unit), -1, 1)))
+				<= stats.ConeDegrees / 2
+		if distance <= stats.Range and inCone and distance < best then
+			best, target = distance, candidate
 		end
 	end
 	Net.Fire("MeleeAttack", {
@@ -304,7 +325,8 @@ local function melee(self: typeof(WeaponController), attack: "Slash" | "Stab")
 		ClientTime = now,
 		Origin = origin,
 		Direction = look,
-		TargetUserId = target and target.UserId,
+		TargetUserId = target and target.Player and target.Player.UserId,
+		TargetDummyId = target and target.DummyId,
 	})
 	viewmodel:Swing(attack)
 end
@@ -356,7 +378,8 @@ function WeaponController.Init(self: typeof(WeaponController), registry: { [stri
 		if snapshot.Loadout then
 			self:ApplyState(snapshot.Loadout)
 		end
-		self.MatchActive = snapshot.Match and snapshot.Match.Phase == "Active"
+		self.MatchActive = snapshot.Match
+			and (snapshot.Match.Phase == "Active" or snapshot.Match.Phase == "Lobby")
 	end)
 
 	input.Began:Connect(function(action: string)
@@ -431,7 +454,7 @@ function WeaponController.Start(self: typeof(WeaponController))
 		self.HitConfirmed:Fire(payload)
 	end)
 	Net.On("MatchState", function(state)
-		self.MatchActive = state.Phase == "Active"
+		self.MatchActive = state.Phase == "Active" or state.Phase == "Lobby"
 	end)
 	player.CharacterAdded:Connect(function()
 		shownWeapon = ""

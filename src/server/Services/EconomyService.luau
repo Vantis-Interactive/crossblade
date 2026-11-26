@@ -87,6 +87,7 @@ function EconomyService.State(_self: typeof(EconomyService), player: Player): { 
 		Owned = items and items.Owned or {},
 		Loadout = items and items.Loadout or {},
 		ActiveCrates = EconomyService.ActiveCrates,
+		CrateTokens = table.clone(data.CrateTokens),
 		RewardsEnabled = rewardsEnabled(),
 	}
 end
@@ -148,7 +149,46 @@ function EconomyService.Grant(
 	return outcome
 end
 
-local function onEliminationScored(event: any, killerStreak: number, roundId: number, sequence: number)
+-- One-time tutorial reward (spec §27): coins and crate tokens in one idempotent transaction.
+function EconomyService.GrantTutorialReward(
+	self: typeof(EconomyService),
+	player: Player,
+	coins: number,
+	crateId: string,
+	crates: number
+): string
+	local outcome = playerData:ApplyTransaction(player, "tutorial-reward", function(draft)
+		if draft.Tutorial.RewardClaimed then
+			error("AlreadyClaimed", 0)
+		end
+		draft.Tutorial.RewardClaimed = true
+		Wallet.CreditEarned(draft.Currency, coins)
+		draft.Stats.CoinsEarned += coins
+		draft.CrateTokens[crateId] = (draft.CrateTokens[crateId] or 0) + crates
+	end)
+	if outcome == "Applied" then
+		audit:Record(
+			"Economy",
+			"TutorialRewardGranted",
+			player.UserId,
+			{ coins = coins, crate = crateId, count = crates }
+		)
+		playerData:RequestSave(player)
+		self:PushState(player)
+		net.Fire("Reward", player, {
+			Coins = coins,
+			XP = 0,
+			Reasons = { "Tutorial" },
+			LevelsGained = 0,
+			LevelCoins = 0,
+			Level = player:GetAttribute("Level"),
+			Capped = false,
+		})
+	end
+	return outcome
+end
+
+local function onEliminationScored(event: any, killerStreak: number, matchId: number, sequence: number)
 	local assistIds = {}
 	for _, assister in event.Assists do
 		table.insert(assistIds, assister.UserId)
@@ -174,7 +214,7 @@ local function onEliminationScored(event: any, killerStreak: number, roundId: nu
 		if player then
 			EconomyService:Grant(
 				player,
-				`elim:{serverTag}:{roundId}:{sequence}:{userId}`,
+				`elim:{serverTag}:{matchId}:{sequence}:{userId}`,
 				grant.Coins,
 				grant.XP,
 				grant.Reasons,
@@ -184,24 +224,32 @@ local function onEliminationScored(event: any, killerStreak: number, roundId: nu
 	end
 end
 
-local function onRoundFinished(ranked: { any }, roundId: number)
+local function onMatchFinished(result: any)
 	if not rewardsEnabled() or population() < E.AntiFarming.MinPlayersForRewards then
 		return
 	end
-	for rank, entry in ranked do
+	local mode = match:Mode()
+	local victoryCoins = if mode.VictoryReward then E.Rewards[mode.VictoryReward] or 0 else 0
+	for rank, entry in result.Ranked do
 		local player = Players:GetPlayerByUserId(entry.UserId)
 		if player then
 			local xp = E.Experience.MatchCompleted
 			local coins = 0
 			local reasons = { "MatchCompleted" }
-			if rank == 1 and entry.Eliminations > 0 then
+			if result.WinnerTeam ~= nil then
+				if result.Teams[entry.UserId] == result.WinnerTeam then
+					xp += E.Experience.FirstPlace
+					coins += victoryCoins
+					table.insert(reasons, "Victory")
+				end
+			elseif result.Kind == "FreeForAll" and rank == 1 and entry.Eliminations > 0 then
 				xp += E.Experience.FirstPlace
 				coins += E.Rewards.FreeForAllFirstPlace
 				table.insert(reasons, "FirstPlace")
 			end
 			EconomyService:Grant(
 				player,
-				`round:{serverTag}:{roundId}:{entry.UserId}`,
+				`match:{serverTag}:{result.MatchId}:{entry.UserId}`,
 				coins,
 				xp,
 				reasons,
@@ -222,7 +270,7 @@ function EconomyService.Init(self: typeof(EconomyService), registry: { [string]:
 	serverTag = if game.JobId ~= "" then game.JobId else `studio{os.time()}`
 
 	match.EliminationScored:Connect(onEliminationScored)
-	match.RoundFinished:Connect(onRoundFinished)
+	match.MatchFinished:Connect(onMatchFinished)
 	playerData.ProfileLoaded:Connect(function(player: Player)
 		self:PushState(player)
 	end)

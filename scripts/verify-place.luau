@@ -10,6 +10,9 @@ local process = require("@lune/process")
 local roblox = require("@lune/roblox")
 
 local path = process.args[1] or "build/crossblade.rbxl"
+-- Optional expectations: lune run scripts/verify-place <file> <Role> <Mode>
+local expectedRole = process.args[2]
+local expectedMode = process.args[3]
 local game = roblox.deserializePlace(fs.readFile(path))
 local failures = {}
 
@@ -41,6 +44,26 @@ expectClass("StarterPlayer.StarterPlayerScripts.Client.Main", "LocalScript")
 expectClass("StarterPlayer.StarterPlayerScripts.Client.Controllers.HUDController", "ModuleScript")
 expectClass("StarterPlayer.StarterCharacterScripts.Health", "Script")
 
+if expectedRole then
+	local config = find("ReplicatedStorage.PlaceConfig")
+	if config == nil then
+		table.insert(failures, "missing ReplicatedStorage.PlaceConfig")
+	else
+		if config:GetAttribute("Role") ~= expectedRole then
+			table.insert(
+				failures,
+				`PlaceConfig.Role is {tostring(config:GetAttribute("Role"))}, expected {expectedRole}`
+			)
+		end
+		if config:GetAttribute("Mode") ~= expectedMode then
+			table.insert(
+				failures,
+				`PlaceConfig.Mode is {tostring(config:GetAttribute("Mode"))}, expected {expectedMode}`
+			)
+		end
+	end
+end
+
 local players = game:GetService("Players")
 if players.CharacterAutoLoads ~= false then
 	table.insert(failures, "Players.CharacterAutoLoads must be false (SpawnService owns spawning)")
@@ -65,11 +88,14 @@ local REQUIRED_SERVICES = {
 	"InventoryService",
 	"MapService",
 	"MatchService",
+	"PortalService",
 	"PickupService",
 	"PlayerDataService",
 	"PolicyComplianceService",
 	"ProgressionService",
 	"ProjectileService",
+	"TrainingService",
+	"TutorialService",
 	"SpawnService",
 	"WeaponService",
 }
@@ -84,4 +110,8 @@ if #failures > 0 then
 	end
 	process.exit(1)
 end
-print(`place structure OK ({count} server services) - {path}`)
+print(
+	`place structure OK ({count} server services{if expectedRole
+		then `, {expectedRole}/{expectedMode}`
+		else ""}) - {path}`
+)

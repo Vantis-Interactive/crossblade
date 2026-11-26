@@ -8,6 +8,8 @@ return table.freeze({
 	Pickups = require(script.Pickups),
 	Spawning = require(script.Spawning),
 	GameModes = require(script.GameModes),
+	Places = require(script.Places),
+	Tutorial = require(script.Tutorial),
 	Data = require(script.Data),
 	AntiCheat = require(script.AntiCheat),
 	FeatureFlags = require(script.FeatureFlags),

@@ -17,11 +17,14 @@ local CrateOdds = require(ReplicatedStorage.Shared.Economy.CrateOdds)
 local Logger = require(ReplicatedStorage.Shared.Util.Logger)
 local CrateOpening = require(script.Parent.Parent.Domain.CrateOpening)
 
+local Signal = require(ReplicatedStorage.Shared.Util.Signal)
+
 local log = Logger.new("Crate")
 
 local CrateService = {
 	Name = "CrateService",
 	Dependencies = { "Net", "PlayerDataService", "EconomyService", "PolicyComplianceService", "AuditService" },
+	CrateOpened = Signal.new() :: Signal.Signal<Player, any>,
 }
 
 local distributions: { [string]: CrateOdds.Distribution } = {}
@@ -61,6 +64,7 @@ local function open(player: Player, payload: any): { [string]: any }
 			AllowPurchased = allowPurchased,
 			Compensation = Config.Economy.DuplicateCompensation,
 			HistoryLimit = Config.Economy.CrateHistoryLimit,
+			UseToken = payload.UseToken == true,
 		})
 	end)
 
@@ -81,7 +85,9 @@ local function open(player: Player, payload: any): { [string]: any }
 		duplicate = applied.Duplicate,
 		compensation = applied.Compensation,
 		fromPurchased = applied.FromPurchased,
+		token = applied.UsedToken,
 	})
+	CrateService.CrateOpened:Fire(player, applied)
 	playerData:RequestSave(player)
 	economy:PushState(player)
 	return { Ok = true, Replayed = false, Result = applied }

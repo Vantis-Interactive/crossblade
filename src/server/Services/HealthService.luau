@@ -171,6 +171,16 @@ function HealthService.Heal(_self: typeof(HealthService), player: Player, amount
 	return life.Health
 end
 
+-- Non-lethal health reduction with no attacker (tutorial preparation). Never kills.
+function HealthService.Drain(_self: typeof(HealthService), player: Player, amount: number)
+	local life = lives[player]
+	if life == nil or not life.Alive then
+		return
+	end
+	life.Health = math.max(1, life.Health - math.max(0, amount))
+	life.Humanoid.Health = life.Health
+end
+
 function HealthService.Kill(_self: typeof(HealthService), player: Player)
 	local life = lives[player]
 	if life == nil or not life.Alive then

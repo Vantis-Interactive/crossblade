@@ -37,6 +37,8 @@ local CameraController = {
 	Pitch = 0,
 	Aiming = false,
 	AimFieldOfView = nil :: number?,
+	-- When the local player has no living character (duel spectating), the camera orbits this player.
+	SpectateTarget = nil :: Player?,
 }
 
 local settings: any
@@ -168,6 +170,26 @@ local function update(self: typeof(CameraController), dt: number)
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local localAlive = root ~= nil and humanoid ~= nil and humanoid.Health > 0
+	local target = self.SpectateTarget
+	local targetRoot = if not localAlive
+			and target
+			and target.Character
+		then target.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		else nil
+	if targetRoot then
+		-- Spectating: orbit the target in third person (no local character to rotate or hide).
+		refreshFilter()
+		local orbit = CFrame.Angles(0, self.Yaw, 0) * CFrame.Angles(self.Pitch, 0, 0)
+		local focus = targetRoot.Position + Vector3.new(0, HEAD, 0)
+		local back = orbit.LookVector * -C.ThirdPerson.Distance
+		local blocked = Workspace:Raycast(focus, back, params)
+		local position = if blocked
+			then blocked.Position - back.Unit * C.ThirdPerson.CollisionPadding
+			else focus + back
+		camera.CFrame = CFrame.lookAt(position, focus)
+		return
+	end
 	if root == nil or humanoid == nil then
 		return
 	end

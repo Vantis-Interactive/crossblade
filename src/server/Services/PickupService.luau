@@ -12,6 +12,8 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Logger = require(ReplicatedStorage.Shared.Util.Logger)
 local PickupState = require(script.Parent.Parent.Domain.PickupState)
 
+local Signal = require(ReplicatedStorage.Shared.Util.Signal)
+
 local log = Logger.new("Pickup")
 local P = Config.Pickups
 
@@ -27,6 +29,8 @@ local PickupService = {
 		"WeaponService",
 		"MatchService",
 	},
+	-- (player, kind: "Health" | "Ammo" | "Knife")
+	PickupConsumed = Signal.new() :: Signal.Signal<Player, string>,
 }
 
 local entries: { Entry } = {}
@@ -75,6 +79,7 @@ local function poll()
 								player,
 								{ Kind = "Pickup", Text = `+{math.floor(target - current)} HP` }
 							)
+							PickupService.PickupConsumed:Fire(player, "Health")
 						end
 					else
 						local consumed = PickupState.TryAmmo(state, now, function()
@@ -83,6 +88,7 @@ local function poll()
 						if consumed then
 							weapons:PushState(player)
 							net.Fire("Notification", player, { Kind = "Pickup", Text = "+AMMO" })
+							PickupService.PickupConsumed:Fire(player, "Ammo")
 						end
 					end
 					setVisual(entry, PickupState.IsAvailable(entry.State, now))
@@ -93,6 +99,7 @@ local function poll()
 					if weapons:ReplaceKnife(player) then
 						stationCooldown[player] = now + P.KnifeStation.CooldownSeconds
 						net.Fire("Notification", player, { Kind = "Pickup", Text = "KNIFE REPLACED" })
+						PickupService.PickupConsumed:Fire(player, "Knife")
 					end
 				end
 			end
@@ -109,7 +116,8 @@ function PickupService.Init(_self: typeof(PickupService), registry: { [string]: 
 	match = registry.MatchService
 end
 
-function PickupService.Start(_self: typeof(PickupService))
+local function rebuild()
+	table.clear(entries)
 	for index, part in mapService:GetTagged("Health") do
 		local size = part:GetAttribute("Size")
 		local cfg = (P.Health :: any)[size]
@@ -133,6 +141,11 @@ function PickupService.Start(_self: typeof(PickupService))
 	end
 	stations = mapService:GetTagged("KnifeStation")
 	log:Info("pickups ready", { pickups = #entries, stations = #stations })
+end
+
+function PickupService.Start(_self: typeof(PickupService))
+	rebuild()
+	mapService.MapChanged:Connect(rebuild)
 
 	Players.PlayerRemoving:Connect(function(player)
 		stationCooldown[player] = nil

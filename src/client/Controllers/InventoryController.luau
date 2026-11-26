@@ -46,10 +46,15 @@ end
 	Opens a crate. One RequestId is generated per purchase and reused for the retry, so a lost
 	response can never cause a second charge: the server answers the retry with the original result.
 ]]
-function InventoryController.OpenCrate(_self: typeof(InventoryController), crateId: string): { [string]: any }
+function InventoryController.OpenCrate(
+	_self: typeof(InventoryController),
+	crateId: string,
+	useToken: boolean?
+): { [string]: any }
 	local requestId = HttpService:GenerateGUID(false)
 	for attempt = 1, 2 do
-		local response = Net.Invoke("OpenCrate", { CrateId = crateId, RequestId = requestId })
+		local response =
+			Net.Invoke("OpenCrate", { CrateId = crateId, RequestId = requestId, UseToken = useToken == true })
 		if response then
 			return response
 		end

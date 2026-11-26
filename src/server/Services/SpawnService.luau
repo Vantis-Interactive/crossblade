@@ -39,6 +39,19 @@ function SpawnService.Init(_self: typeof(SpawnService), registry: { [string]: an
 	antiCheat = registry.AntiCheatService
 	weaponService = registry.WeaponService
 	healthService = registry.HealthService
+	mapService.MapChanged:Connect(function()
+		table.clear(recentDeaths)
+		table.clear(lastUsed)
+	end)
+end
+
+-- Removes the player's character (duel spectators between rounds).
+function SpawnService.Despawn(self: typeof(SpawnService), player: Player)
+	self:EndProtection(player)
+	if player.Character then
+		player.Character:Destroy()
+		player.Character = nil
+	end
 end
 
 function SpawnService.Start(_self: typeof(SpawnService))
@@ -72,19 +85,40 @@ function SpawnService.EndProtection(_self: typeof(SpawnService), player: Player)
 	end
 end
 
-local function choose(player: Player)
+export type Options = {
+	-- Restrict to spawn points with this Team attribute when the map has any.
+	Team: string?,
+	-- Which other players count as opponents for spawn scoring (default: everyone).
+	IsEnemy: ((other: Player) -> boolean)?,
+}
+
+local function choose(player: Player, options: Options?)
+	local isEnemy = options and options.IsEnemy
 	local enemies = {}
 	for _, other in Players:GetPlayers() do
 		local root = other ~= player
 			and other.Character
 			and other.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-		if root and healthService:IsAlive(other) then
+		if root and healthService:IsAlive(other) and (isEnemy == nil or isEnemy(other)) then
 			table.insert(enemies, root.Position)
 		end
 	end
+	local all = mapService:GetSpawns()
+	local team = options and options.Team
+	local hasTeamSpawns = false
+	if team then
+		for _, spawn in all do
+			if spawn.Team == team then
+				hasTeamSpawns = true
+				break
+			end
+		end
+	end
 	local spawns = {}
-	for _, spawn in mapService:GetSpawns() do
-		table.insert(spawns, { Id = spawn.Id, Position = spawn.Position, CFrame = spawn.CFrame })
+	for _, spawn in all do
+		if not hasTeamSpawns or spawn.Team == team then
+			table.insert(spawns, { Id = spawn.Id, Position = spawn.Position, CFrame = spawn.CFrame })
+		end
 	end
 	local headOffset = Vector3.new(0, Config.Player.Hitbox.HeadOffset + 3, 0)
 	return SpawnSelector.Select({
@@ -101,12 +135,17 @@ local function choose(player: Player)
 end
 
 -- Spawns (or respawns) the player. Yields until the character exists. Safe to call repeatedly.
-function SpawnService.Spawn(self: typeof(SpawnService), player: Player, protectionSeconds: number)
+function SpawnService.Spawn(
+	self: typeof(SpawnService),
+	player: Player,
+	protectionSeconds: number,
+	options: Options?
+)
 	if spawning[player] or player.Parent ~= Players then
 		return
 	end
 	spawning[player] = true
-	local spawn = choose(player)
+	local spawn = choose(player, options)
 	local ok, err = pcall(function()
 		player:LoadCharacter()
 	end)

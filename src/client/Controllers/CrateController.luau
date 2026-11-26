@@ -49,6 +49,7 @@ local REASONS = {
 	UnknownCrate = "This crate is not available.",
 	NotLoaded = "Your data is still loading.",
 	NoResponse = "No response from the server. If you were charged, the result will appear in your collection.",
+	NoToken = "You have no free crate token for this crate.",
 }
 
 local function percent(probability: number): string
@@ -60,6 +61,10 @@ local function spendable(state: { [string]: any }): number
 		{ Earned = state.Earned, Purchased = state.Purchased },
 		state.PurchasedUsableForCrates
 	)
+end
+
+local function tokens(state: { [string]: any }, crateId: string): number
+	return (state.CrateTokens and state.CrateTokens[crateId]) or 0
 end
 
 local function renderDetail()
@@ -126,9 +131,12 @@ local function renderDetail()
 		})
 	end
 	oddsList.CanvasSize = UDim2.fromOffset(0, #distribution.Entries * 24)
-	local short = crate.Price - spendable(state)
+	local free = tokens(state, crate.Id)
+	local short = if free > 0 then 0 else crate.Price - spendable(state)
 	if busy then
 		openButton.Text = "OPENING..."
+	elseif free > 0 then
+		openButton.Text = `OPEN FREE ({free} TOKEN{if free > 1 then "S" else ""})`
 	elseif short > 0 then
 		openButton.Text = `NEED ◈ {short} MORE`
 	else
@@ -170,12 +178,16 @@ end
 local function openSelected()
 	local state = inventory.State
 	local crate = selected and Config.Crates.Crates[selected]
-	if busy or crate == nil or state == nil or spendable(state) < crate.Price then
+	if busy or crate == nil or state == nil then
+		return
+	end
+	local useToken = tokens(state, crate.Id) > 0
+	if not useToken and spendable(state) < crate.Price then
 		return
 	end
 	busy = true
 	renderDetail()
-	local response = inventory:OpenCrate(crate.Id)
+	local response = inventory:OpenCrate(crate.Id, useToken)
 	busy = false
 	showReveal(response)
 	renderDetail()

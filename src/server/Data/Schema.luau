@@ -83,6 +83,8 @@ function Schema.Default(userId: number, now: number): PlayerData
 		ProcessedTransactions = {},
 		-- v2: crate results (bounded) for idempotent replies, and persisted hourly reward counters.
 		CrateHistory = {},
+		-- Free crate tokens by crate id (tutorial reward). Added via Reconcile; defaults are safe.
+		CrateTokens = {},
 		Economy = { HourStart = 0, HourCoins = 0, HourXP = 0 },
 	}
 end

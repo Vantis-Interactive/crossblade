@@ -18,7 +18,7 @@ export type Block = {
 	Rotation: number?,
 	Transparent: boolean?,
 }
-export type Marker = { Position: Vector3, Kind: string?, Facing: number? }
+export type Marker = { Position: Vector3, Kind: string?, Facing: number?, Team: string? }
 
 local CONCRETE = Color3.fromRGB(122, 124, 118)
 local STEEL = Color3.fromRGB(84, 90, 92)
@@ -95,7 +95,12 @@ for i = 0, 15 do
 	local radius = if i % 2 == 0 then 80 else 66
 	local position = Vector3.new(math.cos(angle) * radius, 0.5, math.sin(angle) * radius)
 	-- Face the arena centre.
-	table.insert(spawns, { Position = position, Facing = math.deg(math.atan2(-position.X, -position.Z)) })
+	-- Team spawns for Team Deathmatch: east half Alpha, west half Bravo (FFA ignores teams).
+	local team = if position.X >= 0 then "A" else "B"
+	table.insert(
+		spawns,
+		{ Position = position, Facing = math.deg(math.atan2(-position.X, -position.Z)), Team = team }
+	)
 end
 
 local function quadMarkers(position: Vector3, kind: string?): { Marker }
@@ -125,6 +130,7 @@ local knifeStations: { Marker } = {
 return table.freeze({
 	Id = "dev_foundry_yard",
 	DisplayName = "Foundry Yard (Greybox)",
+	Modes = { "FreeForAll", "TeamDeathmatch" },
 	KillHeight = -40,
 	Lighting = {
 		ClockTime = 14.5,
@@ -137,4 +143,7 @@ return table.freeze({
 	Health = health,
 	Ammo = ammo,
 	KnifeStations = knifeStations,
+	Portals = {},
+	Stations = {},
+	DummySpots = {},
 })

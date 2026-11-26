@@ -23,6 +23,7 @@ export type Args = {
 	AllowPurchased: boolean,
 	Compensation: { [string]: number },
 	HistoryLimit: number,
+	UseToken: boolean?,
 }
 
 export type Result = {
@@ -34,13 +35,24 @@ export type Result = {
 	Compensation: number,
 	FromEarned: number,
 	FromPurchased: number,
+	UsedToken: boolean,
 	Time: number,
 }
 
 local CrateOpening = {}
 
 function CrateOpening.Open(draft: { [string]: any }, args: Args): Result
-	local debit = Wallet.Debit(draft.Currency, args.Price, args.AllowPurchased)
+	local debit = { FromEarned = 0, FromPurchased = 0 }
+	if args.UseToken then
+		-- A free token is not a paid randomized purchase: no currency moves.
+		local tokens = draft.CrateTokens[args.CrateId] or 0
+		if tokens <= 0 then
+			error("NoToken", 0)
+		end
+		draft.CrateTokens[args.CrateId] = tokens - 1
+	else
+		debit = Wallet.Debit(draft.Currency, args.Price, args.AllowPurchased)
+	end
 	local entry = CrateOdds.Select(args.Distribution, args.Roll)
 	local owned = draft.Inventory.Weapons[entry.WeaponId] ~= nil
 	local compensation = 0
@@ -62,6 +74,7 @@ function CrateOpening.Open(draft: { [string]: any }, args: Args): Result
 		Compensation = compensation,
 		FromEarned = debit.FromEarned,
 		FromPurchased = debit.FromPurchased,
+		UsedToken = args.UseToken == true,
 		Time = args.Now,
 	}
 	table.insert(draft.CrateHistory, result)

@@ -30,8 +30,10 @@ local FIREARM_SLOT = Schema.Enum({ "Primary", "Secondary" })
 local USER_ID = Schema.Integer(-1e12, 1e12) -- negative ids exist for Studio test players
 local TIME = Schema.Number(0, 1e10)
 
+-- Exactly one of TargetUserId / DummyId must be present (enforced by CombatService).
 local HitReport = Schema.Struct({
-	TargetUserId = USER_ID,
+	TargetUserId = Schema.Optional(USER_ID),
+	DummyId = Schema.Optional(Schema.Integer(1, 100000)),
 	Position = Schema.Vector3(MAX_WORLD),
 	Zone = Schema.Enum({ "Head", "Body" }),
 	Pellet = Schema.Integer(1, 16),
@@ -59,6 +61,7 @@ local ClientToServer: { [string]: ClientContract } = {
 			Origin = Schema.Vector3(MAX_WORLD),
 			Direction = Schema.Vector3(1.01),
 			TargetUserId = Schema.Optional(USER_ID),
+			TargetDummyId = Schema.Optional(Schema.Integer(1, 100000)),
 		}),
 		RateCapacity = 6,
 		RatePerSecond = 5,
@@ -126,6 +129,8 @@ local ClientToServer: { [string]: ClientContract } = {
 			CrateId = Schema.String(32),
 			-- Client-generated idempotency key (GUID). Retries reuse it; replays return the original result.
 			RequestId = Schema.String(64),
+			-- Spend a free crate token (e.g. the tutorial reward) instead of coins.
+			UseToken = Schema.Optional(Schema.Boolean()),
 		}),
 		RateCapacity = 3,
 		RatePerSecond = 1,
@@ -135,6 +140,35 @@ local ClientToServer: { [string]: ClientContract } = {
 		Payload = Schema.Struct({}),
 		RateCapacity = 4,
 		RatePerSecond = 1,
+	},
+	VoteMap = {
+		Kind = "Event",
+		Payload = Schema.Struct({ MapId = Schema.String(64) }),
+		RateCapacity = 4,
+		RatePerSecond = 1,
+	},
+	RequestTeleport = {
+		Kind = "Event",
+		Payload = Schema.Struct({
+			Destination = Schema.Enum({
+				"Hub",
+				"FreeForAll",
+				"TeamDeathmatch",
+				"CasualDuel1v1",
+				"CasualDuelTeam",
+			}),
+		}),
+		RateCapacity = 2,
+		RatePerSecond = 0.2,
+	},
+	TutorialAction = {
+		Kind = "Event",
+		Payload = Schema.Struct({
+			Action = Schema.Enum({ "Start", "Complete", "Exit" }),
+			Step = Schema.Optional(Schema.Integer(1, 64)),
+		}),
+		RateCapacity = 6,
+		RatePerSecond = 2,
 	},
 	GetSnapshot = {
 		Kind = "Function",
@@ -159,6 +193,9 @@ local ServerToClient: { [string]: ServerContract } = {
 	SettingsApplied = { Kind = "Event" },
 	EconomyState = { Kind = "Event" }, -- wallet, level/XP, owned weapons, loadout, active crates
 	Reward = { Kind = "Event" }, -- coins/XP granted with reasons and level-ups
+	MapVote = { Kind = "Event" }, -- options, tallies and deadline during intermission
+	TutorialState = { Kind = "Event" }, -- current step, completion, reward status
+	TeleportStatus = { Kind = "Event" }, -- teleport started / failed (with reason)
 }
 
 return table.freeze({

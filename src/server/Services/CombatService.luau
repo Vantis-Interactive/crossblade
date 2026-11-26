@@ -53,6 +53,7 @@ local CombatService = {
 		"MatchService",
 		"PlayerDataService",
 		"ProjectileService",
+		"TrainingService",
 	},
 }
 
@@ -67,6 +68,7 @@ local antiCheat: any
 local match: any
 local playerData: any
 local projectiles: any
+local training: any
 
 local function root(player: Player): BasePart?
 	local character = player.Character
@@ -108,6 +110,9 @@ local function canFight(player: Player): boolean
 end
 
 local function addStats(player: Player, changes: { [string]: number })
+	if not match:TracksStats() then
+		return -- hub practice and non-progression modes never touch persistent statistics
+	end
 	playerData:Update(player, function(data)
 		for key, amount in changes do
 			data.Stats[key] += amount
@@ -178,12 +183,17 @@ local function onFire(player: Player, payload: any)
 	local anyHit, anyHead = false, false
 	local dealtTotal = 0
 	for _, hit in payload.Hits do
-		local target = Players:GetPlayerByUserId(hit.TargetUserId)
+		-- Each hit names exactly one target: a player or a training dummy.
+		local byPlayer = hit.TargetUserId ~= nil
+		local dummy = if hit.DummyId ~= nil then training:GetDummy(hit.DummyId) else nil
+		local target = if byPlayer then Players:GetPlayerByUserId(hit.TargetUserId) else nil
 		if seenPellets[hit.Pellet] or hit.Pellet > stats.Pellets then
 			antiCheat:Report(player, "InvalidShot", { reason = "DuplicatePellet" })
-		elseif target and target ~= player and canFight(target) then
+		elseif byPlayer == (hit.DummyId ~= nil) then
+			antiCheat:Report(player, "MalformedPayload", { reason = "HitTargetAmbiguous" })
+		elseif (target and target ~= player and match:CanDamage(player, target)) or dummy then
 			seenPellets[hit.Pellet] = true
-			local targetRoot = rewoundRoot(target, rewind)
+			local targetRoot = if target then rewoundRoot(target, rewind) else (dummy :: any).Root.CFrame
 			if targetRoot then
 				local result = HitValidator.ValidateShot({
 					ShooterHead = head,
@@ -200,21 +210,31 @@ local function onFire(player: Player, payload: any)
 				if result.Valid then
 					local zone = result.Zone :: Hitbox.Zone
 					local amount = DamageCalculator.Firearm(stats, result.Distance :: number, zone)
-					local dealt, eliminated = damage:Apply(
-						player,
-						target,
-						amount,
-						{ WeaponId = weaponId, Kind = "Firearm", Zone = zone }
-					)
-					anyHit = true
-					anyHead = anyHead or zone == "Head"
-					dealtTotal += dealt
-					if dealt > 0 then
+					if target then
+						local dealt, eliminated = damage:Apply(
+							player,
+							target,
+							amount,
+							{ WeaponId = weaponId, Kind = "Firearm", Zone = zone }
+						)
+						anyHit = true
+						anyHead = anyHead or zone == "Head"
+						dealtTotal += dealt
+						if dealt > 0 then
+							table.insert(confirmations, {
+								TargetUserId = target.UserId,
+								Damage = dealt,
+								Zone = zone,
+								Eliminated = eliminated,
+							})
+						end
+					else
+						local dealt, down = training:ApplyHit(player, (dummy :: any).Id, amount, "Firearm")
 						table.insert(confirmations, {
-							TargetUserId = target.UserId,
+							TargetDummyId = (dummy :: any).Id,
 							Damage = dealt,
 							Zone = zone,
-							Eliminated = eliminated,
+							Eliminated = down,
 						})
 					end
 				else
@@ -259,7 +279,30 @@ local function onMelee(player: Player, payload: any)
 	net.FireAllExcept("MeleeSwing", player, { AttackerUserId = player.UserId, Attack = payload.Attack })
 
 	local target = payload.TargetUserId and Players:GetPlayerByUserId(payload.TargetUserId)
-	if target == nil or target == player or not canFight(target) then
+	local dummy = payload.TargetDummyId and training:GetDummy(payload.TargetDummyId)
+	if dummy then
+		local head = Hitbox.Shape((root(player) :: BasePart).CFrame).HeadCenter
+		local result = HitValidator.ValidateMelee({
+			Origin = payload.Origin,
+			Direction = payload.Direction,
+			ShooterHead = head,
+			TargetRoot = dummy.Root.CFrame,
+			Range = attack.Range,
+			ConeDegrees = attack.ConeDegrees,
+			RangeTolerance = Config.Combat.Melee.RangeTolerance,
+			ConeToleranceDegrees = Config.Combat.Melee.ConeToleranceDegrees,
+			MaxOriginDeviation = V.MaxOriginDeviation,
+			LineOfSight = CombatQuery.LineOfSight,
+		})
+		if result.Valid then
+			local dealt, down = training:ApplyHit(player, dummy.Id, attack.Damage, "Knife")
+			net.Fire("HitConfirmed", player, {
+				Hits = { { TargetDummyId = dummy.Id, Damage = dealt, Zone = "Body", Eliminated = down } },
+			})
+		end
+		return
+	end
+	if target == nil or target == player or not match:CanDamage(player, target) then
 		return
 	end
 	local rewind = HitValidator.RewindTime(now, payload.ClientTime, L.MaxRewindSeconds, L.MaxFutureSeconds)
@@ -347,6 +390,7 @@ function CombatService.Init(_self: typeof(CombatService), registry: { [string]: 
 	match = registry.MatchService
 	playerData = registry.PlayerDataService
 	projectiles = registry.ProjectileService
+	training = registry.TrainingService
 
 	net.OnEvent("FireWeapon", onFire)
 	net.OnEvent("MeleeAttack", onMelee)

@@ -39,6 +39,8 @@ local WeaponService = {
 	Dependencies = { "Net", "PlayerDataService", "AmmunitionService", "AuditService" },
 	-- (player, supersededThrowId) when a station/respawn replaces a knife that is still in the world.
 	KnifeReplaced = Signal.new() :: Signal.Signal<Player, number>,
+	KnifeRecovered = Signal.new() :: Signal.Signal<Player>,
+	Reloaded = Signal.new() :: Signal.Signal<Player, string>, -- a reload was started
 }
 
 local states: { [Player]: WeaponState } = {}
@@ -196,6 +198,7 @@ function WeaponService.RecoverKnife(self: typeof(WeaponService), player: Player,
 	if state == nil or not KnifeState.Recover(state.Knife, throwId) then
 		return false
 	end
+	WeaponService.KnifeRecovered:Fire(player)
 	attachModel(player, state)
 	self:PushState(player)
 	return true
@@ -240,6 +243,7 @@ function WeaponService.Init(self: typeof(WeaponService), registry: { [string]: a
 		local ok, reason = ammunition:StartReload(player, payload.Slot, now)
 		self:PushState(player)
 		if ok then
+			WeaponService.Reloaded:Fire(player, payload.Slot)
 			local ammo = ammunition:Get(player, payload.Slot)
 			local endsAt = ammo and ammo.ReloadEndsAt
 			if endsAt then

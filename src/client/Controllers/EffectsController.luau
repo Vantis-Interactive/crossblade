@@ -79,22 +79,29 @@ function EffectsController.MuzzleFlash(_self: typeof(EffectsController), positio
 	fade(part, 0.06)
 end
 
+-- `target` is a player or a world position (training dummies).
 function EffectsController.DamageNumber(
 	_self: typeof(EffectsController),
-	target: Player,
+	target: Player | Vector3,
 	amount: number,
 	headshot: boolean
 )
 	if not settings.Current.DamageNumbers then
 		return
 	end
-	local head = target.Character and target.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if head == nil then
-		return
+	local position: Vector3
+	if typeof(target) == "Vector3" then
+		position = target
+	else
+		local root = target.Character and target.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root == nil then
+			return
+		end
+		position = root.Position
 	end
 	local anchor = effectPart(
 		Vector3.one * 0.1,
-		CFrame.new(head.Position + Vector3.new(math.random() - 0.5, 3.2, 0)),
+		CFrame.new(position + Vector3.new(math.random() - 0.5, 3.2, 0)),
 		Color3.new()
 	)
 	anchor.Transparency = 1
