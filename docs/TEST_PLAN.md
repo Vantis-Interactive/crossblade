@@ -21,8 +21,10 @@ Executed in this repository on 2026-11-26 with Lune 0.11.1, Selene 0.31.0, StyLu
 
 - `stylua --check src tests scripts`: pass
 - `selene src` and `selene tests`: 0 errors, 0 warnings
-- `lune run tests/run`: **130 passed, 0 failed, across 15 spec files**
-- `rojo build`: pass; `scripts/verify-place.luau`: pass (13 server services)
+- `lune run tests/run`: **162 passed, 0 failed, across 16 spec files**
+- `rojo build`: pass; `scripts/verify-place.luau`: pass (18 server services)
+
+Phase 3 economy guarantees were mutation-tested. Letting purchased coins bypass the policy check, skewing crate selection away from the disclosed odds, and doubling duplicate compensation were each caught by `Economy.spec`.
 
 The harness's ability to fail was checked with a deliberately failing spec. The integrity checks were mutation-tested: a bad server require, a bad client require, an undeclared registry dependency and an unknown remote were each injected and each was caught.
 
@@ -34,12 +36,12 @@ The harness's ability to fail was checked with a deliberately failing spec. The 
 | 2 | A player cannot attack with an unowned weapon | **Pass** (rule) | `Loadout.spec` > "a player cannot attack with an unowned weapon…". Clients send slot names only; weapons are resolved server-side (`WeaponService.ResetForLife`) |
 | 3 | A player cannot fire without ammunition | **Pass** | `Ammo.spec` > "a player cannot fire without ammunition"; enforced in `CombatService.onFire` via `AmmunitionService:Consume` |
 | 4 | A player cannot use a thrown knife before recovery | **Pass** | `Knife.spec` > "a player cannot use a thrown knife before recovery"; "rejects recovery of stale or foreign throw ids" |
-| 5 | Duplicate crate rewards give exactly the configured compensation | **Not implemented** | Crates are Phase 3 (ECO-04) |
-| 6 | Repeated transaction requests cannot duplicate rewards | **Pass** (profile layer) | `Transactions.spec` > "repeated transaction requests cannot duplicate rewards"; "is all-or-nothing…" |
+| 5 | Duplicate crate rewards give exactly the configured compensation | **Pass** | `Economy.spec` > "duplicate crate rewards provide exactly the configured compensation" (every rarity) |
+| 6 | Repeated transaction requests cannot duplicate rewards | **Pass** | `Transactions.spec` > "repeated transaction requests cannot duplicate rewards"; `Economy.spec` > "a replayed request cannot charge or reward twice", "is atomic: insufficient funds leave the profile untouched" |
 | 7 | Replayed Robux receipts cannot duplicate purchases | **Not implemented** | Phase 7 (MON-01); will be built on `Transactions.Apply` keyed by `PurchaseId` |
-| 8 | Ineligible users cannot purchase paid randomized rewards | **Not implemented** | Phase 7 (MON-04) |
-| 9 | Failed policy lookups block restricted purchases | **Not implemented** | Phase 7 (MON-04) |
-| 10 | Private matches cannot generate normal progression rewards | **Partial** | `Foundation.spec` > "private matches cannot generate normal progression rewards" checks the config flag only. Enforcement arrives with private matches (NET-06) and rewards (ECO-02) |
+| 8 | Ineligible users cannot purchase paid randomized rewards | **Pass** (crate spending) | `Economy.spec` > "ineligible users cannot spend purchased coins on paid randomized rewards"; "blocks restricted users". Robux coin purchases themselves are Phase 7 (MON-01) |
+| 9 | Failed policy lookups block restricted purchases | **Pass** | `Economy.spec` > "failed policy lookups block restricted purchases" |
+| 10 | Private matches cannot generate normal progression rewards | **Pass** (rule) | `Foundation.spec` > "private matches cannot generate normal progression rewards" (mode flag); `Economy.spec` > "pays nothing for self, environmental or disabled-mode eliminations". `EconomyService.rewardsEnabled` also disables rewards in player-owned private servers. End-to-end private matches arrive in Phase 5 (NET-06) |
 | 11 | Failed data loads cannot erase existing profiles | **Pass** | `ProfileStore.spec` > "failed data loads cannot erase existing profiles (store outage)", "never overwrites corrupt records", "refuses data written by a newer schema version", "does not write when a migration fails", "refuses to load a profile locked by another live server and does not write" |
 | 12 | Unauthorized players cannot execute administrator commands | **Not implemented** | No administrator commands exist yet; Phase 8 (SEC-01) |
 | 13 | Matchmaking failures recover without trapping players | **Not implemented** | Phase 5 (NET-01/04) |
@@ -70,10 +72,17 @@ Setup: publish the place, set the avatar type to R15, enable Studio Access to AP
 | M-16 | Touch (device emulator) | Touch buttons FIRE, AIM, RLD, SWAP, THROW, CAM; drag to look; slot buttons tap to equip |
 | M-17 | Exploit simulation: fire remote with a 9999-pellet table, NaN origin, extra fields | Dropped; suspicion logged; no damage |
 | M-18 | 15-minute round end | Results panel; combat disabled; new round in 20 s with stats reset |
+| M-19 | Eliminate a player with a rifle, then with a knife | Toasts "+25 coins +100 XP (Elimination)" and "+35 coins (Knife elimination)"; HUD coins and XP update |
+| M-20 | Eliminate the same player 4 times within 5 minutes | The 4th elimination pays nothing (D-024) |
+| M-21 | Open the Collection window (I / D-pad up / COLLECTION) > Crates > Basic | Every item is listed with its exact percentage before the OPEN button; percentages add up per rarity |
+| M-22 | Open a Basic crate with enough coins | Reveal shows the server's result; a new weapon appears in the Armory; a duplicate shows "+N coins" with the exact table value |
+| M-23 | Disconnect the network mid-open (Studio: pause the server), then resume | At most one charge; a retry returns the same result |
+| M-24 | Equip a crate weapon in the Armory, then respawn | The new weapon is in hand; its model is tinted by its collection |
+| M-25 | Rejoin after M-22 | Coins, inventory, crate history and loadout persisted |
 
 ## 5. Planned test additions by phase
 
-- **Phase 3:** crate odds simulation (≥10⁶ rolls, chi-squared against configured odds), duplicate compensation exactness, economy EV checks, atomic crate purchase (debit + grant + compensation in one transaction).
+- **Phase 3 (done):** stratified and chi-squared odds checks, exact duplicate compensation, EV validation, atomic and idempotent purchase. **Still planned:** a long-horizon economy simulation of coin inflow and sinks per player archetype (ECO-07).
 - **Phase 5:** MemoryStore queue failure injection, teleport failure recovery.
 - **Phase 7:** ProcessReceipt replay, interrupted-session fulfilment, PolicyService failure means blocked.
 - **Phase 8:** RBAC denial for every admin command.

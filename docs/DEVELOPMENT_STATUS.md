@@ -4,14 +4,15 @@ _Last updated: 2026-11-26_
 
 ## Summary
 
-Phases 0, 1 and 2 are implemented. The Free-for-All combat vertical slice is code-complete, and its rules pass 130 automated tests. **It has not yet been played in Roblox Studio or on a live server.** This environment has no Roblox Studio, so the Roblox runtime behaviour of the services and controllers still needs the manual checks in TEST_PLAN.md §4 before Phase 2 can be signed off as "playable multiplayer verified".
+Phases 0–3 are implemented: the foundation, the Free-for-All combat slice, and the economy and collection layer (coins, XP and levels, inventory and loadouts, and 13 crates over 40 weapons). Their rules pass 162 automated tests. **It has not yet been played in Roblox Studio or on a live server.** This environment has no Roblox Studio, so the Roblox runtime behaviour of the services and controllers still needs the manual checks in TEST_PLAN.md §4 before Phase 2 can be signed off as "playable multiplayer verified".
 
 | Phase | State |
 |---|---|
 | 0: Architecture and planning | Complete |
 | 1: Core foundation | Implemented; pure parts tested; Studio verification pending |
 | 2: Combat vertical slice | Implemented; pure parts tested; Studio and multiplayer verification pending |
-| 3–12 | Not started (see BACKLOG.md) |
+| 3: Economy and collection | Implemented; rules tested; Studio verification pending; several values proposed (D-021–D-024, D-029) |
+| 4–12 | Not started (see BACKLOG.md) |
 
 ## What works (verified by automated tests)
 - Health rules (150 cap, no healing of the dead), pickup consumption and respawn timing.
@@ -22,6 +23,9 @@ Phases 0, 1 and 2 are implemented. The Free-for-All combat vertical slice is cod
 - Spawn scoring, movement plausibility, suspicion decay, assists, ranking and streaks.
 - Session-locked persistence: creation, no default overwrite, lock contention, stale takeover, outage retry, corrupt and future-version refusal, migrations, lock loss on save; idempotent all-or-nothing transactions.
 - Remote payload validation against malformed and hostile input; every remote declared and used.
+- Economy: specified coin rewards, assists and streaks; anti-farming (repeat-victim limit, hourly caps, population, private servers); one-time level rewards.
+- Crates: every crate validates (pool, odds, price, compensation, EV below price); selection provably equals the disclosed odds; exact duplicate compensation; atomic, idempotent purchases; purchased coins blocked unless policy allows (fail closed).
+- Schema v2 migration preserves v1 data without retroactive level rewards.
 - Source integrity: every file compiles; every require resolves; every service and controller declares its dependencies; no cycles.
 
 ## Implemented but not yet verified in Roblox
@@ -31,7 +35,9 @@ Everything in `src/server/Services` and `src/client/Controllers`: DataStore I/O,
 - **Temporary assets:** greybox map, primitive weapon models, procedural poses and effects (ASSET_MANIFEST.md).
 - **No audio:** no licensed sound assets exist (AUD-001/002). The feature is blocked, not faked.
 - **One place only:** hub, tutorial and other modes are not built.
-- **No economy, crates, progression or monetization yet** (Phase 3+). Kill rewards are not granted.
+- **No Robux purchases, VIP, battle pass, prestige, achievements or challenges yet** (Phase 7). Purchased-coin balances exist in the schema but nothing grants them.
+- **Weapon customization** is limited to the collection finish colour (ECO-08).
+- **Collectible content is placeholder:** 37 original names on primitive models (D-028).
 - **Selene uses a minimal Roblox std** (D-006). Member-level API linting is unavailable until the full std is generated.
 - **Thrown knives have no lag compensation** (D-011).
 - **Ammo counter flicker** when server state arrives with shots in flight (D-018, CMB-14).
@@ -45,9 +51,11 @@ Everything in `src/server/Services` and `src/client/Controllers`: DataStore I/O,
 3. **Production, staging and development PlaceIds** for `Config.Data.Environments`.
 4. **Licensed or original audio and art** to replace temporary assets.
 5. **Crate economy values.** With the specified odds and duplicate compensation, a 250-coin Basic crate returns 245 coins of expected compensation to a player who owns everything. That is only a 2% coin sink (ECONOMY.md §4). Approve one of the proposed adjustments before any crate goes live; each changes specified values.
-6. **Authorization** before any public publish, live purchase or production data change (directive §2.17). None has been performed.
+6. **Proposed Phase 3 values:** XP amounts (D-021), level curve and rewards (D-022), non-standard crate odds (D-023), anti-farming limits (D-024) and Free-for-All first-place reward (D-029). They are configuration values; approve or adjust them.
+7. **Authorization** before any public publish, live purchase or production data change (directive §2.17). None has been performed.
 
 ## Recommended next steps
-1. Run the TEST_PLAN.md §4 checklist in Studio with 3+ players and fix what it finds.
-2. Phase 3: EconomyService and CrateService on `Transactions.Apply`, with the economy simulation (ECO-07) before any crate is enabled.
-3. Generate the full Selene Roblox std on a machine with direct internet access (D-006).
+1. Run the TEST_PLAN.md §4 checklist (M-01–M-25) in Studio with 3+ players and fix what it finds.
+2. Decide the proposed values and the crate sink margin.
+3. Phase 4: social hub place, lobby armory and crate shop, matchmaking portals, tutorial, casual duels, Team Deathmatch, map voting. Map voting needs at least a second map.
+4. Generate the full Selene Roblox std on a machine with direct internet access (D-006).

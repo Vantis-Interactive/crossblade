@@ -31,9 +31,21 @@ Maps each major requirement in the master directive to its implementation and te
 | 10 | Eliminator, weapon, HP and level shown | `MatchService.onEliminated` → `Eliminated`; `HUDController` | none | Done, Studio |
 | 11 | Archetype-based collectibles, unique ids, profiles | `Config/Weapons/Catalog`, `Weapons/WeaponCatalog.Validate` | `WeaponCatalog.spec` | Done (3 of 150 weapons) |
 | 11 | Rarity not equal to power; rarity not colour-only | D-008, `Config/Rarity` symbols | `WeaponCatalog.spec` | Done |
-| 13–14 | Economy, crates, odds, compensation, PolicyService | not implemented | none | Planned (ECO-xx, MON-04) |
-| 13 | Separate earned/purchased accounting; transaction ids | `Data/Schema` (`Currency.Earned/Purchased`), `Data/Transactions` | `Transactions.spec` | Foundation done |
-| 15–16 | Progression, prestige, achievements, mastery, challenges | Schema fields reserved | none | Planned (PRG-xx) |
+| 13 | Coin rewards (elimination 25, knife 35, headshot +10, assist 10, 5-streak 50) | `Config/Economy`, `Domain/RewardPolicy`, `EconomyService` | `Economy.spec` > RewardPolicy | Done, Studio |
+| 13 | Separate earned/purchased accounting; transaction ids; idempotency | `Shared/Economy/Wallet`, `Data/Transactions`, `EconomyService.Grant` | `Transactions.spec`, `Economy.spec` > Wallet | Done |
+| 13 | Anti-farming (self, cooperative, private server) and reward limits | `Domain/RewardPolicy` (repeat victim, hourly caps, population), `EconomyService.rewardsEnabled` | `Economy.spec` > RewardPolicy | Done |
+| 14 | Crate catalog, prices, per-crate pools and odds | `Config/Crates`, `Shared/Economy/CrateOdds` | `Economy.spec` > Crate configuration | Done |
+| 14 | Server-side selection; odds disclosed equal the algorithm | `CrateOdds.Select`, `CrateService` (`Random`), `CrateController` (same `CrateOdds.Build`) | `Economy.spec` > "stratified rolls…", "chi-squared…" | Done |
+| 14 | Animation shows the server result only; reduced animation; no near-miss | `CrateController.showReveal` | none (manual M-22) | Done, Studio |
+| 14 | Duplicate compensation; atomic purchase | `Domain/CrateOpening`, `Transactions.Apply` | `Economy.spec` > Crate opening | Done |
+| 14 | Pre-activation validation; no unlimited currency generation | `CrateOdds.Validate` at `CrateService.Init` | `Economy.spec` > "every crate passes validation…", "cannot generate net coins…" | Done |
+| 14 | PolicyService gating, fail closed | `PolicyComplianceService`, `Domain/PaidRandomPolicy`, `Wallet.Debit` | `Economy.spec` > Paid random item policy | Done (crate spending) |
+| 14 | No trading, gifting, marketplace | Not implemented by design; no remote exists that moves items between players | `Integrity.spec` (all remotes declared) | Done |
+| 12 | Loadout persistence and armory | `InventoryService`, `ArmoryController`, `Domain/Loadout` | `Loadout.spec` | Done, Studio |
+| 12 | Customization (skins, charms, attachments) | Collection finish only (`Config/Collections`, `WeaponModels`) | `WeaponCatalog.spec` > collections | Foundation only (ECO-08) |
+| 15 | Player levels and level rewards | `Shared/Economy/Leveling`, `ProgressionService` | `Economy.spec` > Leveling | Done |
+| 15–16 | Prestige, achievements, mastery, challenges | Schema fields reserved | none | Planned (PRG-xx) |
+| 24 | Schema versioning with a real migration (v1 → v2) | `Data/Schema.Migrations[1]` | `Economy.spec` > "Schema v2 migration" | Done |
 | 17 | Map contract via tags; boundaries; pickups; stations | `MapService`, `Maps/DevArena`, `HealthService` kill height | `verify-place` (structure) | Done (1 greybox map; DEV-MAP-001) |
 | 18–19 | Hub, matchmaking, parties, teleports | not implemented | none | Planned (LOB-xx, NET-xx) |
 | 20 | Tactical UI, responsive, scalable text, reduced motion, controller navigation | `Config/Theme`, `UI/Build`, `HUDController` (UIScale), `SettingsController` (GuiService selection) | none | Combat HUD and settings done, Studio; other screens planned |

@@ -19,6 +19,7 @@ src/
   shared/                -> ReplicatedStorage.Shared (visible to clients: NO secrets)
     Config/              all tuning: Player, Camera, Combat, Pickups, Spawning, GameModes,
                          Data, AntiCheat, FeatureFlags, Rarity, Theme, Input, Weapons/{Archetypes,Catalog}
+    Economy/             pure rules: CrateOdds (disclosure = selection), Leveling, Wallet
     Combat/              pure rules: Hitbox, DamageCalculator, HealthRules, AmmoState,
                          KnifeState, FireCadence, PositionHistory
     Net/                 Schema (payload validator), Contracts (every remote)
@@ -31,13 +32,14 @@ src/
     Data/                Schema (v1 + migrations), ProfileStore (session locking),
                          Transactions (idempotent atomic mutations), DataStoreAdapter
     Domain/              pure server rules: HitValidator, DamageLedger, SpawnSelector,
-                         MovementValidator, SuspicionScore, PickupState, MatchRules, Loadout
-    Services/            13 services (section 4)
+                         MovementValidator, SuspicionScore, PickupState, MatchRules, Loadout,
+                         CrateOpening, RewardPolicy, PaidRandomPolicy
+    Services/            18 services (section 4)
     Maps/DevArena.luau   temporary greybox layout (DEV-MAP-001)
   client/                -> StarterPlayerScripts.Client
     Main.client.luau     boot
     Core/                Net (client wrapper), UIState
-    Controllers/         11 controllers (section 5)
+    Controllers/         13 controllers (section 5)
     UI/Build.luau        themed UI construction helpers
   character/Health.server.luau  -> StarterCharacterScripts.Health (disables default regeneration)
 tests/                   Lune test runtime, harness, specs
@@ -74,8 +76,13 @@ docs/                    this documentation set
 | ProjectileService | Thrown-knife flight, impact, ground knives, recovery | Net, WeaponService, DamageService, HealthService, MatchService, PlayerDataService |
 | PickupService | Health, ammunition and knife-station consumption | Net, MapService, HealthService, AmmunitionService, WeaponService, MatchService |
 | CombatService | Fire, melee and throw request validation; lag-compensation history | Net, WeaponService, AmmunitionService, DamageService, HealthService, SpawnService, AntiCheatService, MatchService, PlayerDataService, ProjectileService |
+| PolicyComplianceService | PolicyService lookups; fail-closed paid-random eligibility | AuditService |
+| InventoryService | Ownership queries, validated loadout presets | Net, PlayerDataService, AuditService |
+| ProgressionService | XP and levels inside economy transactions; Level attribute | PlayerDataService |
+| EconomyService | Wallet state, match rewards (anti-farming, hourly caps), `EconomyState`/`Reward` | Net, PlayerDataService, MatchService, ProgressionService, InventoryService, PolicyComplianceService, AuditService |
+| CrateService | Crate validation at boot, server RNG, atomic idempotent opening | Net, PlayerDataService, EconomyService, PolicyComplianceService, AuditService |
 
-Services required by the directive but not yet built (EconomyService, CrateService, MatchmakingService and the rest) are deliberately absent. No placeholder modules exist (directive §2.7); see BACKLOG.md.
+Services required by the directive but not yet built (MatchmakingService, RankedService, MonetizationService and the rest) are deliberately absent. No placeholder modules exist (directive §2.7); see BACKLOG.md.
 
 ### Cross-service events
 
@@ -91,6 +98,9 @@ DamageService ──► Eliminated{Victim, Killer?, WeaponId, Kind, Headshot, As
                                 └─► SpawnService:RecordDeath, respawn after mode delay
 WeaponService.KnifeReplaced(player, throwId) ──► ProjectileService removes that knife
 PlayerDataService.ProfileLoaded(player, profile) ──► MatchService joins and spawns the player
+                                                 └─► EconomyService pushes EconomyState
+MatchService.EliminationScored(event, streak, round, seq) ──► EconomyService: RewardPolicy → one transaction per beneficiary
+MatchService.RoundFinished(ranked, round) ──► EconomyService: match-completion XP
 Net.Violation(player, kind, remote, detail) ──► AntiCheatService:Report
 ```
 
@@ -107,7 +117,10 @@ Net.Violation(player, kind, remote, detail) ──► AntiCheatService:Report
 | AnimationController | Procedural arm and torso aim poses for every character (DEV-ANIM-001) |
 | WeaponController | Predictive firing, melee targeting, throwing, reload, equip; mirrors `LoadoutState` |
 | HUDController | Combat HUD, scoreboard, kill feed, elimination screen, damage direction |
-| NotificationController | Toast messages |
+| NotificationController | Toast messages, reward and level-up notices |
+| InventoryController | Client mirror of wallet, level, inventory and loadout; crate and loadout requests |
+| ArmoryController | Collection window: Armory tab (owned weapons, stats, equip) and tab host |
+| CrateController | Crates tab: per-item odds before purchase, open, result reveal |
 
 ## 6. Combat flow (one rifle shot)
 

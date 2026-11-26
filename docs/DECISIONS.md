@@ -24,6 +24,15 @@ Architecture and design decisions, newest last. Each entry records the context, 
 | D-018 | Client predicts ammunition; server state always overwrites it | Accepted |
 | D-019 | Dropped knives despawn after 30 s | Accepted |
 | D-020 | Network contracts are declarative and exhaustive | Accepted |
+| D-021 | Proposed XP amounts | Proposed: **Needs owner approval** |
+| D-022 | Proposed level curve and level rewards | Proposed: **Needs owner approval** |
+| D-023 | Proposed odds for non-standard crates | Proposed: **Needs owner approval** |
+| D-024 | Proposed anti-farming limits | Proposed: **Needs owner approval** |
+| D-025 | "Finished off" kills pay the assist rate | Accepted |
+| D-026 | Crates spend earned coins first; purchased coins only when policy allows | Accepted |
+| D-027 | Crate idempotency via a client RequestId and CrateHistory | Accepted |
+| D-028 | Phase 3 placeholder collectible content | Accepted (temporary) |
+| D-029 | Free-for-All first place awards XP only | Proposed: **Needs owner approval** |
 
 ---
 
@@ -115,3 +124,41 @@ Architecture and design decisions, newest last. Each entry records the context, 
 
 ### D-020: Network contracts are declarative and exhaustive
 **Decision.** Every remote is declared in `Shared/Net/Contracts.luau` with its payload schema and rate limit. The server Net layer is the only code that connects `OnServerEvent`. An integrity test fails if code uses an undeclared remote or if a declared remote is unused.
+
+### D-021: Proposed XP amounts
+**Context.** The specification lists XP sources but no amounts.
+**Decision.** In `Config.Economy.Experience`: elimination 100, headshot bonus 20, assist 40, finished-off kill 40, match completed 150, first place 250.
+**Consequences.** These are configuration values only; changing them needs no code change.
+
+### D-022: Proposed level curve and level rewards
+**Decision.** XP to go from level L to L+1 is `1000 + 100 × (L − 1)`, so reaching level 100 takes 584,100 XP. Each level pays 100 coins, plus 400 more on every 10th level. Level rewards are paid only above `Progression.HighestRewardedLevel`, so they can never be paid twice, including after a future prestige reset (`Shared/Economy/Leveling`).
+
+### D-023: Proposed odds for non-standard crates
+**Context.** The specification gives one "standard" distribution. Basic and the knife, pistol, rifle and sniper crates use it.
+**Decision.** Proposed distributions in `Config/Crates.luau`:
+- Premium: Uncommon 40 / Rare 30 / Epic 18 / Legendary 8 / Mythical 3.5 / Celestial 0.5.
+- Legendary: Legendary 85 / Mythical 13 / Celestial 2.
+- Mythical: Mythical 92 / Celestial 8.
+- Shotgun: standard, with Celestial's 0.2% moved to Mythical, because no Celestial shotgun exists.
+- Themed: Rare 60 / Epic 28 / Legendary 10 / Mythical 2.
+Every crate passes boot-time validation; each one's expected duplicate compensation is below its price.
+
+### D-024: Proposed anti-farming limits
+**Decision.** The same killer→victim pair is rewarded at most 3 times per 300 s, and the whole elimination pays nothing beyond that. Match rewards are capped at 2,000 coins and 20,000 XP per rolling hour; the counters are persisted, so hopping servers does not reset them. Rewards require at least 2 players with loaded profiles. Player-owned private servers award nothing. All values live in `Config.Economy.AntiFarming`.
+
+### D-025: "Finished off" kills pay the assist rate
+**Decision.** A `Finished` elimination (D-013) pays 10 coins and 40 XP, not a full elimination reward. This keeps kill-denial resistance without making environmental deaths farmable.
+
+### D-026: Crates spend earned coins first; purchased coins only when policy allows
+**Context.** Coins bought with Robux and spent on crates make crates paid randomized items under platform policy.
+**Decision.** `Wallet.Debit` always spends earned coins first. Purchased coins are spendable on crates only when `PolicyService` was queried successfully and reported `ArePaidRandomItemsRestricted = false`. Any failure or unexpected value blocks purchased-coin use (fail closed, `Domain/PaidRandomPolicy`). Earned coins remain the free, gameplay-based path.
+
+### D-027: Crate idempotency via a client RequestId and CrateHistory
+**Decision.** The client generates a GUID per purchase and reuses it on retry. The server applies the purchase as transaction `crate:<RequestId>`. A replay returns the stored result from `CrateHistory` (bounded at 50) and is never charged or rewarded again.
+
+### D-028: Phase 3 placeholder collectible content
+**Decision.** 37 collectible definitions with original names cover every archetype, rarity and themed collection, so every crate has a real reward pool. They stay within the launch distribution limits per rarity and slot, which is tested. Models are primitive dev models tinted by collection (ASSET_MANIFEST.md). Phase 9 replaces the models and extends the catalog to 150.
+
+### D-029: Free-for-All first place awards XP only
+**Context.** The specification gives duel and Team Deathmatch victory coins but nothing for Free-for-All.
+**Decision.** First place with at least one elimination earns 250 XP and `FreeForAllFirstPlace = 0` coins until a value is approved.

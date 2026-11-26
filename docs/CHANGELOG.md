@@ -2,6 +2,18 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are pre-release development milestones.
 
+## [0.3.0] - 2026-11-26 (Phase 3: economy and collection, unverified in Studio)
+### Added
+- Earned/purchased wallet; coin and XP rewards for eliminations, assists, headshots, streaks and match completion, each applied as one idempotent transaction.
+- Anti-farming: repeat-victim limit, persisted hourly caps, population minimum, no rewards in player-owned private servers or modes without progression.
+- Levels 1–100 with one-time level rewards.
+- 13 crates (rarity, weapon and themed) with boot-time validation, server-side selection, exact per-item odds shown before purchase, duplicate compensation, and idempotent purchases keyed by a client request id.
+- Fail-closed PolicyService gating: purchased coins are only spendable on crates for eligible players.
+- 37 collectible weapons (placeholder content) and dev model profiles for every archetype, tinted by collection.
+- Collection window (Armory and Crates), HUD wallet and level, reward notifications.
+### Changed
+- Player data schema v2 (crate history, hourly reward counters, highest rewarded level) with a migration from v1.
+
 ## [0.2.0] - 2026-11-26 (Phase 2: combat vertical slice, unverified in Studio)
 ### Added
 - Free-for-All match loop: 15-minute rounds, 20-second intermission, 3-second respawn, scoreboard, kill feed, killstreak announcements, round results.

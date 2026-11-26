@@ -52,13 +52,16 @@ Ordered by dependency. Status: **Done** means implemented and covered by automat
 
 | ID | Item | Status |
 |---|---|---|
-| ECO-01 | EconomyService: earned/purchased wallet on `Transactions.Apply` | Planned |
-| ECO-02 | Elimination, assist, streak and victory coin rewards (spec §13 values) | Planned |
-| ECO-03 | InventoryService and loadout editing (server validates ownership via `Domain/Loadout`) | Planned |
-| ECO-04 | CrateService: per-crate pools, server RNG, duplicate compensation, odds disclosure | Planned |
-| ECO-05 | ProgressionService: XP and levels | Planned |
-| ECO-06 | Anti-farming: self/cooperative/private-server farming limits; reward policy for `Finished` kills (D-013) | Planned |
-| ECO-07 | Economy simulation tooling (Lune) before any crate goes live | Planned |
+| ECO-01 | EconomyService: earned/purchased wallet on `Transactions.Apply` | Done, needs Studio verification |
+| ECO-02 | Elimination, assist, streak and victory coin rewards (spec §13 values) | Done (rules tested), needs Studio verification |
+| ECO-03 | InventoryService and loadout editing (ownership validated server-side) | Done, needs Studio verification |
+| ECO-04 | CrateService: per-crate pools, server RNG, duplicate compensation, odds disclosure | Done (rules tested), needs Studio verification |
+| ECO-05 | ProgressionService: XP, levels, one-time level rewards | Done (rules tested) |
+| ECO-06 | Anti-farming: repeat-victim limit, hourly caps, population minimum, owned private servers, `Finished` reward policy | Done (rules tested) |
+| ECO-07 | Economy validation | Partial: boot-time pool/odds/EV validation and tests are done; a standalone long-horizon economy simulation tool is planned |
+| ECO-08 | Weapon customization (skins, charms, stickers, attachments) | Planned. The Phase 3 foundation is the collection finish on each weapon; the `Customization` schema field is reserved |
+| ECO-09 | Seasonal crates (Halloween, Winter, Anniversary) | Planned (Phase 12, needs seasonal content) |
+| ECO-10 | Sink-margin decision for crates (ECONOMY.md §4) | **Owner decision** |
 
 ## Phase 4: Lobby and casual modes
 LOB-01 social hub place · LOB-02 armory · LOB-03 crate shop · LOB-04 matchmaking portals · LOB-05 shooting range · LOB-06 tutorial · MOD-01 casual duels · MOD-02 Team Deathmatch · MOD-03 map voting. All Planned.
@@ -70,7 +73,7 @@ NET-01 MemoryStore queues · NET-02 parties (up to 8) · NET-03 server browser �
 RNK-01 rating system · RNK-02 divisions · RNK-03 ranked matchmaking · RNK-04 leaderboards · RNK-05 spectator · RNK-06 match history · RNK-07 anti-boosting and abandonment penalties · RNK-08 projectile rewind (D-011). All Planned.
 
 ## Phase 7: Progression and monetization
-PRG-01 prestige · PRG-02 achievements · PRG-03 mastery · PRG-04 challenges · MON-01 ProcessReceipt fulfilment (idempotent) · MON-02 VIP · MON-03 battle pass · MON-04 PolicyService gating for paid random items (fail closed) · MON-05 purchase recovery. All Planned.
+PRG-01 prestige · PRG-02 achievements · PRG-03 mastery · PRG-04 challenges · MON-01 ProcessReceipt fulfilment (idempotent) · MON-02 VIP · MON-03 battle pass · MON-04 PolicyService gating for paid random items (fail closed; **done for crate spending in Phase 3**) · MON-05 purchase recovery. All Planned except MON-04, which is implemented for crate spending.
 
 ## Phase 8: Security and administration
 SEC-01 RBAC admin roles · SEC-02 admin dashboard · SEC-03 reports · SEC-04 sanctions and appeals · SEC-05 economy reconciliation · SEC-06 server-side command audit · SEC-07 tune anti-cheat thresholds on real play data, then decide on `KickOnSuspicion` · SEC-08 durable cross-server audit storage. All Planned.

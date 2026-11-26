@@ -2,7 +2,7 @@
 
 Crossblade (working title, see docs/DECISIONS.md D-001) is a fast-paced, skill-based multiplayer PvP arena game for Roblox with guns and knives. It is free-to-play, has no pay-to-win mechanics, and uses non-graphic combat.
 
-**Status:** Phases 0–2 are implemented. A server-authoritative Free-for-All combat slice is code-complete and its rules pass the automated suite. It has **not yet been playtested in Roblox Studio**. See [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md).
+**Status:** Phases 0–3 are implemented: the foundation, a server-authoritative Free-for-All combat slice, and the economy and collection layer (coins, XP and levels, inventory and loadouts, crates). Their rules pass the automated suite. It has **not yet been playtested in Roblox Studio**. See [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md).
 
 ## Quick start
 
@@ -53,6 +53,7 @@ In Studio, set Game Settings > Avatar to **R15**, enable **Studio Access to API 
 | Toggle camera | V | R3 | CAM |
 | Scoreboard | Tab (hold) | D-pad left | SCORE |
 | Settings | P | Select | SETTINGS |
+| Collection (armory, crates) | I | D-pad up | COLLECTION |
 
 ## Documentation
 
@@ -63,7 +64,7 @@ In Studio, set Game Settings > Avatar to **R15**, enable **Studio Access to API 
 | [DATA_SCHEMA](docs/DATA_SCHEMA.md) | Player data v1, session locking, migrations |
 | [NETWORK_CONTRACTS](docs/NETWORK_CONTRACTS.md) | Every remote, payload and rate limit |
 | [WEAPON_CATALOG](docs/WEAPON_CATALOG.md) | Archetypes, stats, catalog rules |
-| [ECONOMY](docs/ECONOMY.md) | Currency, rewards, crates (planned) |
+| [ECONOMY](docs/ECONOMY.md) | Currency, rewards, crates, progression |
 | [MAP_DESIGN](docs/MAP_DESIGN.md) | Map tag contract, greybox arena |
 | [UI_GUIDELINES](docs/UI_GUIDELINES.md) | Theme, HUD, accessibility, bindings |
 | [SECURITY](docs/SECURITY.md) | Threat model and mitigations |
