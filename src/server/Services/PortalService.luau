@@ -123,6 +123,91 @@ local function teleport(player: Player, destinationId: string)
 	end
 end
 
+-- Teleports a group to a reserved server (matchmaking, private matches, reconnects).
+-- Returns true when TeleportAsync accepted the request; arrival failures surface via TeleportInitFailed.
+function PortalService.TeleportReserved(
+	_self: typeof(PortalService),
+	players: { Player },
+	placeId: number,
+	accessCode: string
+): (boolean, string?)
+	if RunService:IsStudio() then
+		return false, "Studio"
+	end
+	local options = Instance.new("TeleportOptions")
+	options.ReservedServerAccessCode = accessCode
+	for _, player in players do
+		pending[player] = true
+	end
+	local ok, err = Retry.Call(Config.Places.Teleport, function()
+		return TeleportService:TeleportAsync(placeId, players, options)
+	end)
+	if not ok then
+		for _, player in players do
+			pending[player] = nil
+		end
+		audit:Record(
+			"Data",
+			"ReservedTeleportFailed",
+			nil,
+			{ place = placeId, players = #players, error = tostring(err) }
+		)
+		return false, "Failed"
+	end
+	return true, nil
+end
+
+-- Joins one specific public server (server browser).
+function PortalService.JoinInstance(
+	_self: typeof(PortalService),
+	player: Player,
+	destinationId: string,
+	jobId: string
+)
+	local reason = refusal(player, destinationId)
+	if reason then
+		status(player, { Ok = false, Destination = destinationId, Reason = reason })
+		return
+	end
+	local destination = Config.Places.Destinations[destinationId]
+	pending[player] = true
+	status(player, { Ok = true, Destination = destinationId, Stage = "Starting" })
+	local options = Instance.new("TeleportOptions")
+	options.ServerInstanceId = jobId
+	local ok, err = Retry.Call(Config.Places.Teleport, function()
+		return TeleportService:TeleportAsync(destination.PlaceId, { player }, options)
+	end)
+	if not ok then
+		pending[player] = nil
+		log:Warn("instance join failed", { player = player.UserId, error = err })
+		status(player, { Ok = false, Destination = destinationId, Reason = "Failed" })
+	end
+end
+
+-- Sends a player back to the hub. If that is impossible (Studio, hub unpublished) and `kickIfStuck`
+-- is set, the player is removed with `message` instead of being left somewhere they cannot play.
+function PortalService.SendToHub(
+	_self: typeof(PortalService),
+	player: Player,
+	message: string,
+	kickIfStuck: boolean?
+)
+	net.Fire("Notification", player, { Kind = "Warning", Text = message })
+	local hub = Config.Places.Destinations.Hub
+	if RunService:IsStudio() or hub.PlaceId == 0 or PlaceConfig.Role == "Hub" then
+		if kickIfStuck then
+			player:Kick(message)
+		end
+		return
+	end
+	local ok = Retry.Call(Config.Places.Teleport, function()
+		return TeleportService:TeleportAsync(hub.PlaceId, { player })
+	end)
+	if not ok and kickIfStuck then
+		player:Kick(message)
+	end
+end
+
 function PortalService.Init(_self: typeof(PortalService), registry: { [string]: any })
 	net = registry.Net
 	playerData = registry.PlayerDataService
@@ -133,6 +218,28 @@ function PortalService.Init(_self: typeof(PortalService), registry: { [string]: 
 	end)
 	mapService.MapChanged:Connect(addPrompts)
 	addPrompts()
+
+	-- Arenas enforce the mandatory tutorial too (players can arrive by joining a friend, etc.).
+	if PlaceConfig.Role == "Arena" then
+		playerData.ProfileLoaded:Connect(function(player: Player, profile: any)
+			if not profile.Data.Tutorial.Completed then
+				task.spawn(function()
+					if RunService:IsStudio() then
+						net.Fire("Notification", player, {
+							Kind = "Warning",
+							Text = "Studio: tutorial not completed (a live server would send you to the hub).",
+						})
+					else
+						PortalService:SendToHub(
+							player,
+							"Complete the tutorial in the hub before joining matches.",
+							false
+						)
+					end
+				end)
+			end
+		end)
+	end
 end
 
 function PortalService.Start(_self: typeof(PortalService))

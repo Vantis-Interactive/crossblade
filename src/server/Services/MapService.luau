@@ -24,6 +24,7 @@ local Workspace = game:GetService("Workspace")
 local Logger = require(ReplicatedStorage.Shared.Util.Logger)
 local PlaceConfig = require(ReplicatedStorage.Shared.PlaceConfig)
 local Signal = require(ReplicatedStorage.Shared.Util.Signal)
+local MatchContext = require(script.Parent.Parent.Core.MatchContext)
 
 local log = Logger.new("Map")
 
@@ -278,10 +279,20 @@ end
 
 function MapService.Init(self: typeof(MapService), _registry: { [string]: any })
 	register()
-	local candidates = self:MapsForMode(PlaceConfig.Mode)
-	local initial = if PlaceConfig.Map and sources[PlaceConfig.Map] then PlaceConfig.Map else candidates[1]
+	-- Private matches use the base mode's maps and may request one; reserved ladder matches use their mode.
+	local record = MatchContext.Record
+	local modeId = if record and record.Private
+		then (record.BaseMode or "FreeForAll")
+		elseif record then record.Mode
+		else PlaceConfig.Mode
+	local candidates = self:MapsForMode(modeId)
+	local requested = record and record.Settings and record.Settings.MapId
+	local initial = if type(requested) == "string" and table.find(candidates, requested)
+		then requested
+		elseif PlaceConfig.Map and sources[PlaceConfig.Map] then PlaceConfig.Map
+		else candidates[1]
 	if initial == nil then
-		error(`no map supports mode {PlaceConfig.Mode}`)
+		error(`no map supports mode {modeId}`)
 	end
 	-- Loaded during Init so dependents can query the map from their own Start.
 	self:Load(initial)

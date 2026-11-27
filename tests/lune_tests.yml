@@ -18,3 +18,4 @@ globals:
       - type: function
   Runtime: { any: true }
   MemoryDataStore: { any: true }
+  MemorySortedMap: { any: true }

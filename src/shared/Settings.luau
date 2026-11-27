@@ -4,6 +4,7 @@
 	the server can persist them; the server always sanitizes before saving (never trusts the client).
 ]]
 
+local Bindings = require(script.Parent.Bindings)
 local Config = require(script.Parent.Config)
 
 export type Settings = {
@@ -16,6 +17,7 @@ export type Settings = {
 	CrosshairSize: number,
 	ReducedMotion: boolean,
 	DamageNumbers: boolean,
+	Bindings: Bindings.Bindings,
 }
 
 local Settings = {}
@@ -40,6 +42,7 @@ function Settings.Defaults(): Settings
 		CrosshairSize = 12,
 		ReducedMotion = false,
 		DamageNumbers = Config.FeatureFlags.DamageNumbers,
+		Bindings = {},
 	}
 end
 
@@ -101,6 +104,7 @@ function Settings.Sanitize(input: any): Settings
 		DamageNumbers = if type(input.DamageNumbers) == "boolean"
 			then input.DamageNumbers
 			else defaults.DamageNumbers,
+		Bindings = Bindings.Sanitize(input.Bindings),
 	}
 end
 

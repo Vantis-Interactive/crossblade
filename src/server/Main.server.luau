@@ -17,6 +17,9 @@ Players.CharacterAutoLoads = false
 
 local PlaceConfig = require(ReplicatedStorage.Shared.PlaceConfig)
 
+-- Reserved servers read their match record before anything boots (MatchService needs the mode).
+require(script.Parent.Core.MatchContext).Load()
+
 -- Services may declare Roles = { "Hub" } / { "Arena" }; services without Roles run everywhere.
 local modules = {}
 for _, module in Loader.RequireChildren(script.Parent.Services) do

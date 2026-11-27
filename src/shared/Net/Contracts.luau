@@ -9,6 +9,13 @@
 ]]
 
 local Schema = require(script.Parent.Schema)
+local InputConfig = require(script.Parent.Parent.Config.Input)
+
+local ACTIONS = {}
+for action in InputConfig do
+	table.insert(ACTIONS, action)
+end
+table.sort(ACTIONS)
 
 export type RemoteKind = "Event" | "UnreliableEvent" | "Function"
 
@@ -109,6 +116,14 @@ local ClientToServer: { [string]: ClientContract } = {
 			CrosshairSize = Schema.Integer(4, 40),
 			ReducedMotion = Schema.Boolean(),
 			DamageNumbers = Schema.Boolean(),
+			Bindings = Schema.Optional(Schema.Array(
+				Schema.Struct({
+					Action = Schema.Enum(ACTIONS),
+					Keyboard = Schema.Optional(Schema.String(32)),
+					Gamepad = Schema.Optional(Schema.String(32)),
+				}),
+				32
+			)),
 		}),
 		RateCapacity = 3,
 		RatePerSecond = 0.5,
@@ -170,6 +185,68 @@ local ClientToServer: { [string]: ClientContract } = {
 		RateCapacity = 6,
 		RatePerSecond = 2,
 	},
+	JoinQueue = {
+		Kind = "Event",
+		Payload = Schema.Struct({
+			Destination = Schema.Enum({ "TeamDeathmatch", "CasualDuel1v1", "CasualDuelTeam" }),
+		}),
+		RateCapacity = 2,
+		RatePerSecond = 0.5,
+	},
+	LeaveQueue = {
+		Kind = "Event",
+		Payload = Schema.Struct({}),
+		RateCapacity = 3,
+		RatePerSecond = 1,
+	},
+	PartyAction = {
+		Kind = "Event",
+		Payload = Schema.Struct({
+			Action = Schema.Enum({ "Invite", "Accept", "Decline", "Leave", "Kick", "Promote" }),
+			TargetUserId = Schema.Optional(USER_ID),
+			PartyId = Schema.Optional(Schema.Integer(1, 1e9)),
+		}),
+		RateCapacity = 6,
+		RatePerSecond = 2,
+	},
+	RequestReconnect = {
+		Kind = "Event",
+		Payload = Schema.Struct({}),
+		RateCapacity = 2,
+		RatePerSecond = 0.2,
+	},
+	GetServers = {
+		Kind = "Function",
+		Payload = Schema.Struct({ Destination = Schema.Enum({ "FreeForAll", "TeamDeathmatch" }) }),
+		RateCapacity = 3,
+		RatePerSecond = 0.5,
+	},
+	JoinServer = {
+		Kind = "Event",
+		Payload = Schema.Struct({
+			Destination = Schema.Enum({ "FreeForAll", "TeamDeathmatch" }),
+			JobId = Schema.String(64),
+		}),
+		RateCapacity = 2,
+		RatePerSecond = 0.2,
+	},
+	GetPrivateOptions = {
+		Kind = "Function",
+		Payload = Schema.Struct({}),
+		RateCapacity = 3,
+		RatePerSecond = 0.5,
+	},
+	HostPrivate = {
+		Kind = "Event",
+		Payload = Schema.Struct({
+			Mode = Schema.Enum({ "FreeForAll", "TeamDeathmatch" }),
+			MapId = Schema.String(64),
+			DurationMinutes = Schema.Integer(1, 60),
+			ScoreLimit = Schema.Integer(1, 500),
+		}),
+		RateCapacity = 2,
+		RatePerSecond = 0.1,
+	},
 	GetSnapshot = {
 		Kind = "Function",
 		Payload = Schema.Struct({}),
@@ -196,6 +273,9 @@ local ServerToClient: { [string]: ServerContract } = {
 	MapVote = { Kind = "Event" }, -- options, tallies and deadline during intermission
 	TutorialState = { Kind = "Event" }, -- current step, completion, reward status
 	TeleportStatus = { Kind = "Event" }, -- teleport started / failed (with reason)
+	QueueStatus = { Kind = "Event" }, -- matchmaking ticket state for each party member
+	PartyState = { Kind = "Event" }, -- party members, leader and pending invites
+	ReconnectOffer = { Kind = "Event" }, -- an unfinished reserved match the player can rejoin
 }
 
 return table.freeze({

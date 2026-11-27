@@ -5,6 +5,7 @@
 ]]
 
 local GuiService = game:GetService("GuiService")
+local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -14,6 +15,11 @@ local Signal = require(ReplicatedStorage.Shared.Util.Signal)
 local Net = require(script.Parent.Parent.Core.Net)
 local UIState = require(script.Parent.Parent.Core.UIState)
 local Build = require(script.Parent.Parent.UI.Build)
+local Bindings = require(ReplicatedStorage.Shared.Bindings)
+
+local input: any
+local refreshControls: () -> ()
+local buildControls: (list: Frame) -> ()
 
 local Theme = Config.Theme
 
@@ -48,11 +54,30 @@ local function refresh()
 	end
 end
 
+local function cloneSettings(settings: Settings.Settings): Settings.Settings
+	local copy = table.clone(settings)
+	copy.Bindings = {}
+	for action, override in settings.Bindings do
+		copy.Bindings[action] = table.clone(override)
+	end
+	return copy
+end
+
 function SettingsController.Apply(self: typeof(SettingsController), settings: any)
 	self.Current = Settings.Sanitize(settings)
-	draft = table.clone(self.Current)
+	draft = cloneSettings(self.Current)
 	refresh()
+	if input then
+		input:Rebind(self.Current.Bindings)
+	end
 	self.Changed:Fire(self.Current)
+end
+
+-- Network form: bindings travel as an array (see Net/Contracts SaveSettings).
+local function toWire(settings: Settings.Settings): { [string]: any }
+	local payload = table.clone(settings) :: any
+	payload.Bindings = Bindings.ToWire(settings.Bindings)
+	return payload
 end
 
 function SettingsController.SetOpen(_self: typeof(SettingsController), open: boolean)
@@ -62,8 +87,9 @@ function SettingsController.SetOpen(_self: typeof(SettingsController), open: boo
 	panel.Visible = open
 	UIState.SetMenuOpen("Settings", open)
 	if open then
-		draft = table.clone(SettingsController.Current)
+		draft = cloneSettings(SettingsController.Current)
 		refresh()
+		refreshControls()
 		local first = panel:FindFirstChild("FirstSelectable", true)
 		if first and first:IsA("GuiObject") then
 			GuiService.SelectedObject = first
@@ -71,6 +97,160 @@ function SettingsController.SetOpen(_self: typeof(SettingsController), open: boo
 	elseif GuiService.SelectedObject and GuiService.SelectedObject:IsDescendantOf(panel) then
 		GuiService.SelectedObject = nil
 	end
+end
+
+-- CONTROLS page: click a binding, then press the new key/button. Rules are Shared/Bindings.
+local controlsFrame: ScrollingFrame
+local controlButtons: { [string]: { Keyboard: TextButton, Gamepad: TextButton } } = {}
+local controlStatus: TextLabel
+local capturing: { Action: string, Family: "Keyboard" | "Gamepad", Since: number }? = nil
+
+refreshControls = function()
+	if controlsFrame == nil then
+		return
+	end
+	for action, buttons in controlButtons do
+		local keyboard, gamepad = Bindings.Effective(draft.Bindings, action)
+		buttons.Keyboard.Text = if capturing
+				and capturing.Action == action
+				and capturing.Family == "Keyboard"
+			then "PRESS A KEY"
+			else (keyboard or "-")
+		buttons.Gamepad.Text = if capturing
+				and capturing.Action == action
+				and capturing.Family == "Gamepad"
+			then "PRESS A BUTTON"
+			else (gamepad or "-")
+	end
+end
+
+local function capture(inputObject: InputObject)
+	local current = capturing
+	if current == nil or os.clock() - current.Since < 0.25 then
+		return
+	end
+	if inputObject.KeyCode == Enum.KeyCode.Escape then
+		capturing = nil
+		refreshControls()
+		return
+	end
+	local name: string? = nil
+	if current.Family == "Keyboard" then
+		if inputObject.UserInputType == Enum.UserInputType.Keyboard then
+			name = inputObject.KeyCode.Name
+		elseif string.match(inputObject.UserInputType.Name, "^MouseButton%d$") then
+			name = inputObject.UserInputType.Name
+		end
+	elseif string.find(inputObject.UserInputType.Name, "Gamepad") then
+		name = inputObject.KeyCode.Name
+	end
+	if name == nil then
+		return
+	end
+	capturing = nil
+	local allowed = if current.Family == "Keyboard" then Bindings.KeyboardAllowed else Bindings.GamepadAllowed
+	if not allowed[name] then
+		controlStatus.Text = `{name} cannot be bound.`
+	else
+		local usedBy = Bindings.UsedBy(draft.Bindings, current.Family, name, current.Action)
+		if usedBy then
+			controlStatus.Text = `{name} is already used by {usedBy}.`
+		else
+			local override = table.clone(draft.Bindings[current.Action] or {})
+			override[current.Family] = name
+			draft.Bindings[current.Action] = override
+			controlStatus.Text = `{current.Action} -> {name}`
+		end
+	end
+	refreshControls()
+end
+
+buildControls = function(list: Frame)
+	local page = Build.New(
+		"Frame",
+		{ BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = list.Parent }
+	)
+	page.Position = list.Position
+	page.Size = list.Size
+	controlStatus = Build.Label({
+		Text = "Click a binding, then press the new key. Esc cancels.",
+		TextColor3 = Theme.Colors.TextMuted,
+		TextSize = 12,
+		Size = UDim2.new(1, 0, 0, 18),
+		Parent = page,
+	})
+	controlsFrame = Build.New("ScrollingFrame", {
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		Position = UDim2.fromOffset(0, 22),
+		Size = UDim2.new(1, 0, 1, -60),
+		CanvasSize = UDim2.new(),
+		Parent = page,
+	}, {
+		Build.New("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }),
+	})
+	for order, action in Bindings.Actions() do
+		local row = Build.New("Frame", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, -8, 0, 28),
+			LayoutOrder = order,
+			Parent = controlsFrame,
+		})
+		Build.Label({ Text = action, TextSize = 14, Size = UDim2.new(0.4, 0, 1, 0), Parent = row })
+		local function begin(family: "Keyboard" | "Gamepad")
+			capturing = { Action = action, Family = family, Since = os.clock() }
+			refreshControls()
+		end
+		controlButtons[action] = {
+			Keyboard = Build.Button({
+				Text = "",
+				TextSize = 13,
+				Position = UDim2.fromScale(0.4, 0),
+				Size = UDim2.new(0.3, -4, 1, 0),
+				Parent = row,
+			}, function()
+				begin("Keyboard")
+			end),
+			Gamepad = Build.Button({
+				Text = "",
+				TextSize = 13,
+				Position = UDim2.fromScale(0.7, 0),
+				Size = UDim2.new(0.3, -4, 1, 0),
+				Parent = row,
+			}, function()
+				begin("Gamepad")
+			end),
+		}
+	end
+	controlsFrame.CanvasSize = UDim2.fromOffset(0, #Bindings.Actions() * 31)
+	Build.Button({
+		Text = "RESET CONTROLS",
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.fromScale(0, 1),
+		Size = UDim2.new(1, 0, 0, 32),
+		Parent = page,
+	}, function()
+		draft.Bindings = {}
+		refreshControls()
+	end)
+	local pageButton: TextButton
+	pageButton = Build.Button({
+		Text = "CONTROLS",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 0, 0, -36),
+		Size = UDim2.fromOffset(120, 30),
+		Parent = list.Parent,
+	}, function()
+		page.Visible = not page.Visible
+		list.Visible = not page.Visible
+		pageButton.Text = if page.Visible then "GENERAL" else "CONTROLS"
+		capturing = nil
+		refreshControls()
+	end)
+	pageButton.Position = UDim2.new(1, 0, 0, 0)
+	UserInputService.InputBegan:Connect(capture)
+	refreshControls()
 end
 
 local function buildPanel(gui: ScreenGui)
@@ -185,7 +365,9 @@ local function buildPanel(gui: ScreenGui)
 	Build.Button({ Text = "DEFAULTS", Size = UDim2.new(0.3, -6, 1, 0), Parent = footer }, function()
 		draft = Settings.Defaults()
 		refresh()
+		refreshControls()
 	end)
+	buildControls(list)
 	Build.Button({
 		Text = "CANCEL",
 		Size = UDim2.new(0.3, -6, 1, 0),
@@ -202,12 +384,13 @@ local function buildPanel(gui: ScreenGui)
 		Parent = footer,
 	}, function()
 		SettingsController:Apply(draft)
-		Net.Fire("SaveSettings", SettingsController.Current)
+		Net.Fire("SaveSettings", toWire(SettingsController.Current))
 		SettingsController:SetOpen(false)
 	end)
 end
 
 function SettingsController.Init(self: typeof(SettingsController), registry: { [string]: any })
+	input = registry.InputController
 	registry.SnapshotController.Loaded:Connect(function(snapshot)
 		self:Apply(snapshot.Settings)
 	end)

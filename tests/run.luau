@@ -14,6 +14,7 @@ local task = require("@lune/task")
 local Harness = require("./lib/Harness")
 local Runtime = require("./lib/Runtime")
 local MemoryDataStore = require("./lib/MemoryDataStore")
+local MemorySortedMap = require("./lib/MemorySortedMap")
 
 local root = process.cwd
 if string.sub(root, -1) == "/" then
@@ -52,6 +53,7 @@ for _, file in files do
 		return runtime:Require(target)
 	end
 	env.MemoryDataStore = MemoryDataStore
+	env.MemorySortedMap = MemorySortedMap
 	env.Vector3 = roblox.Vector3
 	env.CFrame = roblox.CFrame
 	env.task = task

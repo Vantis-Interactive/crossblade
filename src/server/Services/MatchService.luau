@@ -27,10 +27,11 @@ local DuelRounds = require(script.Parent.Parent.Domain.DuelRounds)
 local MapVote = require(script.Parent.Parent.Domain.MapVote)
 local MatchRules = require(script.Parent.Parent.Domain.MatchRules)
 local Teams = require(script.Parent.Parent.Domain.Teams)
+local MatchContext = require(script.Parent.Parent.Core.MatchContext)
 
 local log = Logger.new("Match")
 
-type Phase = "Lobby" | "Waiting" | "Countdown" | "Active" | "RoundEnd" | "Intermission"
+type Phase = "Lobby" | "Waiting" | "Countdown" | "Active" | "RoundEnd" | "Intermission" | "Closed"
 
 export type MatchResult = {
 	ModeId: string,
@@ -59,9 +60,33 @@ local MatchService = {
 	MatchFinished = Signal.new() :: Signal.Signal<MatchResult>,
 }
 
-local mode = Config.GameModes[MatchService.ModeId]
+-- Reserved servers (matchmaking / private matches) take their mode and teams from the match record.
+local record = MatchContext.Record
+local reserved = MatchContext.IsReserved() and record ~= nil
+local mode = MatchContext.ModeConfig(MatchService.ModeId) :: any
 local kind = mode and mode.Kind
-local teamSize = PlaceConfig.TeamSize or (mode and mode.TeamSize) or 1
+local function recordTeamSize(): number?
+	if record == nil then
+		return nil
+	end
+	local size = 0
+	for _, ids in record.Teams do
+		size = math.max(size, #ids)
+	end
+	return size
+end
+local teamSize = (if reserved then recordTeamSize() else nil)
+	or PlaceConfig.TeamSize
+	or (mode and mode.TeamSize)
+	or 1
+local rosterTeam: { [number]: Teams.TeamId } = {}
+if reserved and record then
+	for team, ids in record.Teams do
+		for _, userId in ids do
+			rosterTeam[userId] = team :: Teams.TeamId
+		end
+	end
+end
 local teamMode = kind == "TeamDeathmatch" or kind == "Duel"
 
 local phase: Phase = if kind == "Lobby" then "Lobby" else "Waiting"
@@ -212,6 +237,8 @@ local function matchState(): { [string]: any }
 		Duel = if duel then { Round = duel.Round, Wins = duel.Wins, RoundsToWin = duel.RoundsToWin } else nil,
 		TeamSize = if kind == "Duel" then teamSize else nil,
 		RespawnEnabled = mode.RespawnDelaySeconds ~= nil,
+		Reserved = reserved,
+		Private = MatchContext.IsPrivateMatch(),
 		PlayersNeeded = requiredPlayers(),
 		PlayerCount = #loadedPlayers(),
 		Results = if phase == "Intermission" then lastResults else nil,
@@ -295,6 +322,8 @@ local function finishMatch(winnerTeam: Teams.TeamId?)
 	broadcast()
 end
 
+local handleRound: (outcome: DuelRounds.Outcome) -> ()
+
 local function startRound()
 	local state = duel :: DuelRounds.State
 	DuelRounds.StartRound(state)
@@ -308,9 +337,17 @@ local function startRound()
 	end
 	announce({ Kind = "Round", Round = state.Round, Wins = state.Wins })
 	broadcast()
+	if reserved then
+		-- Rostered players who are not here (not arrived / disconnected) sit this round out.
+		for userId in state.Roster do
+			if Players:GetPlayerByUserId(userId) == nil then
+				handleRound(DuelRounds.Eliminate(state, userId))
+			end
+		end
+	end
 end
 
-local function handleRound(outcome: DuelRounds.Outcome)
+handleRound = function(outcome: DuelRounds.Outcome)
 	if outcome.MatchWinner then
 		finishMatch(outcome.MatchWinner)
 	elseif outcome.RoundWinner or outcome.Draw then
@@ -342,7 +379,25 @@ local function startMatch()
 	end
 	if teamMode then
 		clearTeams()
-		local assignment, overflow = Teams.Balance(ids, if kind == "Duel" then teamSize else nil)
+		local assignment, overflow
+		if reserved then
+			assignment, overflow = {}, {}
+			for _, userId in ids do
+				if rosterTeam[userId] then
+					assignment[userId] = rosterTeam[userId]
+				else
+					table.insert(overflow, userId)
+				end
+			end
+			-- Duels keep the full roster so absent players' teams can still be eliminated or forfeit.
+			if kind == "Duel" then
+				for userId, team in rosterTeam do
+					assignment[userId] = team
+				end
+			end
+		else
+			assignment, overflow = Teams.Balance(ids, if kind == "Duel" then teamSize else nil)
+		end
 		for userId, team in assignment do
 			local player = Players:GetPlayerByUserId(userId)
 			if player then
@@ -377,6 +432,12 @@ local function startMatch()
 end
 
 local function endIntermission()
+	if reserved then
+		-- Reserved servers host exactly one match; ReservedMatchService returns everyone to the hub.
+		phase = "Closed"
+		broadcast()
+		return
+	end
 	if vote then
 		local winner = MapVote.Winner(vote, math.random)
 		vote = nil
@@ -411,6 +472,9 @@ local function tick()
 	if phase == "Lobby" then
 		return
 	elseif phase == "Waiting" then
+		if reserved then
+			return -- started by ReservedMatchService once the roster has arrived (BeginReserved)
+		end
 		if #loadedPlayers() >= requiredPlayers() then
 			if mode.CountdownSeconds > 0 then
 				phase = "Countdown"
@@ -421,7 +485,7 @@ local function tick()
 			end
 		end
 	elseif phase == "Countdown" then
-		if #loadedPlayers() < requiredPlayers() then
+		if not reserved and #loadedPlayers() < requiredPlayers() then
 			phase = "Waiting"
 			broadcast()
 		elseif now >= endsAt then
@@ -563,6 +627,35 @@ local function onEliminated(event: any)
 	end
 end
 
+-- Reserved servers: start once the roster has arrived (or the arrival deadline passed).
+function MatchService.BeginReserved(_self: typeof(MatchService))
+	if phase == "Waiting" then
+		if mode.CountdownSeconds > 0 then
+			phase = "Countdown"
+			endsAt = net.Now() + mode.CountdownSeconds
+			broadcast()
+		else
+			startMatch()
+		end
+	end
+end
+
+-- Reserved servers: a disconnected player's reconnect window expired; remove them for good.
+function MatchService.ForgetPlayer(_self: typeof(MatchService), userId: number)
+	if entries[userId] then
+		entries[userId] = nil
+		scoreboardDirty = true
+	end
+	teams[userId] = nil
+	if duel and phase ~= "Intermission" and phase ~= "Closed" then
+		handleRound(DuelRounds.RemovePlayer(duel, userId))
+	end
+end
+
+function MatchService.Phase(_self: typeof(MatchService)): string
+	return phase
+end
+
 function MatchService.Mode(_self: typeof(MatchService))
 	return mode
 end
@@ -639,10 +732,18 @@ function MatchService.Init(_self: typeof(MatchService), registry: { [string]: an
 		joinCounter += 1
 		joinOrder[player.UserId] = joinCounter
 		net.Fire("MatchState", player, matchState())
-		if kind == "Duel" and (phase == "Active" or phase == "RoundEnd") then
-			return -- spectate until the next match
+		if reserved and rosterTeam[player.UserId] == nil then
+			return -- not on this reserved match's roster; ReservedMatchService turns them away
 		end
-		if phase == "Active" then
+		if reserved and teamMode then
+			setTeam(player, rosterTeam[player.UserId]) -- reconnecting players keep their team
+		end
+		if kind == "Duel" and (phase == "Active" or phase == "RoundEnd") then
+			return -- spectate until the next round (reconnected duelists rejoin at the next round)
+		end
+		if phase == "Active" and reserved then
+			entryFor(player) -- existing entry (score) is preserved for reconnects
+		elseif phase == "Active" then
 			if kind == "TeamDeathmatch" then
 				local team = Teams.Pick(teams, nil)
 				if team then
@@ -660,6 +761,13 @@ function MatchService.Init(_self: typeof(MatchService), registry: { [string]: an
 		if vote then
 			MapVote.Remove(vote, player.UserId)
 			voteDirty = true
+		end
+		if reserved then
+			-- Keep score and team for a reconnect; in a duel the disconnect costs the current round.
+			if duel and phase == "Active" then
+				handleRound(DuelRounds.Eliminate(duel, player.UserId))
+			end
+			return
 		end
 		if entries[player.UserId] then
 			entries[player.UserId] = nil
@@ -704,7 +812,9 @@ function MatchService.Start(_self: typeof(MatchService))
 				local stranded = character == nil
 					or character.Parent == nil
 					or character:FindFirstChildOfClass("Humanoid") == nil
-				local spectator = kind == "Duel" and (phase == "Active" or phase == "RoundEnd")
+				local spectator = (kind == "Duel" and (phase == "Active" or phase == "RoundEnd"))
+					or (reserved and rosterTeam[player.UserId] == nil)
+					or phase == "Closed"
 				if
 					stranded
 					and not spectator

@@ -9,6 +9,7 @@ return table.freeze({
 	Spawning = require(script.Spawning),
 	GameModes = require(script.GameModes),
 	Places = require(script.Places),
+	Matchmaking = require(script.Matchmaking),
 	Tutorial = require(script.Tutorial),
 	Data = require(script.Data),
 	AntiCheat = require(script.AntiCheat),

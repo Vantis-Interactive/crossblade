@@ -20,13 +20,20 @@ local Theme = Config.Theme
 
 local LobbyController = {
 	Name = "LobbyController",
-	Dependencies = { "ArmoryController", "NotificationController" },
+	Dependencies = {
+		"ArmoryController",
+		"NotificationController",
+		"MatchmakingController",
+		"PartyController",
+	},
 	-- Fired when the player asks to travel or reaches a portal (tutorial "Matchmaking" step).
 	TravelIntent = Signal.new() :: Signal.Signal<string>,
 }
 
 local armory: any
 local notifications: any
+local matchmaking: any
+local party: any
 local menu: Frame
 
 local REASONS = {
@@ -40,9 +47,14 @@ local REASONS = {
 	UnknownDestination = "Unknown destination.",
 }
 
+-- Queued destinations go through matchmaking (reserved servers); others join public servers.
 function LobbyController.Travel(self: typeof(LobbyController), destination: string)
 	self.TravelIntent:Fire(destination)
-	Net.Fire("RequestTeleport", { Destination = destination })
+	if PlaceConfig.Role == "Hub" and Config.Matchmaking.Queues[destination] then
+		Net.Fire("JoinQueue", { Destination = destination })
+	else
+		Net.Fire("RequestTeleport", { Destination = destination })
+	end
 end
 
 function LobbyController.SetMenuOpen(_self: typeof(LobbyController), open: boolean)
@@ -52,33 +64,77 @@ function LobbyController.SetMenuOpen(_self: typeof(LobbyController), open: boole
 	end
 end
 
+local BROWSABLE = { FreeForAll = true, TeamDeathmatch = true }
+
 local function buildMenu(gui: ScreenGui)
-	local destinations = if PlaceConfig.Role == "Hub" then Config.Places.PlayOrder else { "Hub" }
+	local hub = PlaceConfig.Role == "Hub"
+	local destinations = if hub then Config.Places.PlayOrder else { "Hub" }
+	local extraRows = if hub then 2 else 0
 	menu = Build.Panel({
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(340, 80 + #destinations * 44),
+		Size = UDim2.fromOffset(420, 84 + (#destinations + extraRows) * 44),
 		BackgroundTransparency = 0.05,
 		Visible = false,
 		Parent = gui,
 	}, { Build.Padding(12) })
 	Build.Label({
-		Text = if PlaceConfig.Role == "Hub" then "PLAY" else "LEAVE MATCH",
+		Text = if hub then "PLAY" else "LEAVE MATCH",
 		Font = Theme.Fonts.Heading,
 		TextSize = Theme.TextSize.Large,
 		Size = UDim2.new(1, 0, 0, 28),
 		Parent = menu,
 	})
-	for index, id in destinations do
+	local y = 34
+	for _, id in destinations do
 		local destination = Config.Places.Destinations[id]
+		local queued = hub and Config.Matchmaking.Queues[id] ~= nil
+		local label = if id == "Hub"
+			then "Return to hub"
+			else destination.DisplayName .. (if queued then "  (matchmaking)" else "")
+		local browsable = hub and BROWSABLE[id]
 		Build.Button({
-			Text = string.upper(if id == "Hub" then "Return to hub" else destination.DisplayName),
-			Position = UDim2.fromOffset(0, 34 + (index - 1) * 44),
-			Size = UDim2.new(1, 0, 0, 38),
+			Text = string.upper(label),
+			Position = UDim2.fromOffset(0, y),
+			Size = UDim2.new(1, if browsable then -110 else 0, 0, 38),
 			Parent = menu,
 		}, function()
 			LobbyController:SetMenuOpen(false)
 			LobbyController:Travel(id)
+		end)
+		if browsable then
+			Build.Button({
+				Text = "SERVERS",
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, 0, 0, y),
+				Size = UDim2.fromOffset(104, 38),
+				Parent = menu,
+			}, function()
+				LobbyController:SetMenuOpen(false)
+				matchmaking:OpenBrowser(id)
+			end)
+		end
+		y += 44
+	end
+	if hub then
+		Build.Button({
+			Text = "HOST PRIVATE MATCH",
+			Position = UDim2.fromOffset(0, y),
+			Size = UDim2.new(1, 0, 0, 38),
+			Parent = menu,
+		}, function()
+			LobbyController:SetMenuOpen(false)
+			matchmaking:OpenPrivate()
+		end)
+		y += 44
+		Build.Button({
+			Text = "PARTY",
+			Position = UDim2.fromOffset(0, y),
+			Size = UDim2.new(1, 0, 0, 38),
+			Parent = menu,
+		}, function()
+			LobbyController:SetMenuOpen(false)
+			party:SetOpen(true)
 		end)
 	end
 	Build.Button({
@@ -91,7 +147,7 @@ local function buildMenu(gui: ScreenGui)
 		LobbyController:SetMenuOpen(false)
 	end)
 	Build.Button({
-		Text = if PlaceConfig.Role == "Hub" then "PLAY" else "HUB",
+		Text = if hub then "PLAY" else "HUB",
 		BackgroundColor3 = Theme.Colors.Accent,
 		Position = UDim2.fromOffset(338, 64),
 		Size = UDim2.fromOffset(90, 32),
@@ -104,6 +160,8 @@ end
 function LobbyController.Init(_self: typeof(LobbyController), registry: { [string]: any })
 	armory = registry.ArmoryController
 	notifications = registry.NotificationController
+	matchmaking = registry.MatchmakingController
+	party = registry.PartyController
 end
 
 function LobbyController.Start(self: typeof(LobbyController))
