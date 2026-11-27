@@ -38,9 +38,14 @@ export type Ticket = {
 	CreatedAt: number,
 	HubJobId: string,
 	Retries: number,
+	ClaimedBy: string?, -- set atomically by a leader that is forming a match with this ticket
+	ClaimedAt: number?,
 }
 
 local Queue = {}
+
+-- A claim older than this is treated as abandoned (the claiming leader crashed mid-tick).
+Queue.ClaimSeconds = 30
 
 local function userKey(userId: number): string
 	return `u{userId}`
@@ -101,15 +106,55 @@ function Queue.Heartbeat(stores: Stores, ticket: Ticket, now: number, ttl: numbe
 	return alive
 end
 
--- Oldest first.
-function Queue.Read(stores: Stores, count: number): { Ticket }
+-- Oldest first. Tickets currently claimed by a live leader are skipped unless includeClaimed.
+function Queue.Read(stores: Stores, count: number, now: number?, includeClaimed: boolean?): { Ticket }
 	local list = {}
 	for _, item in stores.Tickets:GetRangeAsync("Ascending", count) do
-		if type(item.value) == "table" then
-			table.insert(list, item.value)
+		local ticket = item.value
+		if type(ticket) == "table" then
+			local claimed = ticket.ClaimedBy ~= nil
+				and now ~= nil
+				and now - (ticket.ClaimedAt or 0) < Queue.ClaimSeconds
+			if includeClaimed or not claimed then
+				table.insert(list, ticket)
+			end
 		end
 	end
 	return list
+end
+
+--[[
+	Atomically claims a ticket for a match being formed by `token`. Fails if the ticket is gone or is
+	held by another live claim. UpdateAsync is atomic per key, so two leaders (e.g. during a lease
+	overlap caused by clock skew) can never both claim the same ticket.
+]]
+function Queue.Claim(stores: Stores, ticketId: string, token: string, now: number, ttl: number): boolean
+	local claimed = false
+	stores.Tickets:UpdateAsync(ticketId, function(old, sortKey)
+		claimed = false
+		if type(old) ~= "table" then
+			return nil
+		end
+		if old.ClaimedBy and old.ClaimedBy ~= token and now - (old.ClaimedAt or 0) < Queue.ClaimSeconds then
+			return nil
+		end
+		old.ClaimedBy = token
+		old.ClaimedAt = now
+		claimed = true
+		return old, sortKey
+	end, ttl)
+	return claimed
+end
+
+function Queue.Release(stores: Stores, ticketId: string, token: string, ttl: number)
+	stores.Tickets:UpdateAsync(ticketId, function(old, sortKey)
+		if type(old) ~= "table" or old.ClaimedBy ~= token then
+			return nil
+		end
+		old.ClaimedBy = nil
+		old.ClaimedAt = nil
+		return old, sortKey
+	end, ttl)
 end
 
 function Queue.Assign(stores: Stores, ticketId: string, assignment: { [string]: any }, ttl: number)

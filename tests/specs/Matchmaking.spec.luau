@@ -250,6 +250,8 @@ describe("Matchmaking queue (MemoryStore semantics)", function()
 			MaxTickets = 100,
 			AssignmentSeconds = 120,
 			MatchRecordSeconds = 3600,
+			Token = "leaderA",
+			TicketSeconds = 120,
 		})
 		expect(result.Formed).toBe(2)
 		expect(#Queue.Read(s, 10)).toBe(0)
@@ -258,6 +260,49 @@ describe("Matchmaking queue (MemoryStore semantics)", function()
 		local record = matchesStore:GetAsync(assignment.PrivateServerId)
 		expect(record.Mode).toBe("CasualDuel1v1")
 		expect(#record.Teams.A + #record.Teams.B).toBe(2)
+	end)
+
+	it("two leaders can never claim the same ticket", function()
+		local s = stores()
+		Queue.Enqueue(s, ticket("t1", { 1 }, 1), clock, 120)
+		expect(Queue.Claim(s, "t1", "A", clock, 120)).toBe(true)
+		expect(Queue.Claim(s, "t1", "B", clock + 1, 120)).toBe(false)
+		expect(#Queue.Read(s, 10, clock + 1)).toBe(0) -- claimed tickets are not offered to formers
+		Queue.Release(s, "t1", "A", 120)
+		expect(Queue.Claim(s, "t1", "B", clock + 2, 120)).toBe(true)
+		-- A claim abandoned by a crashed leader expires.
+		expect(Queue.Claim(s, "t1", "C", clock + 2 + Queue.ClaimSeconds, 120)).toBe(true)
+	end)
+
+	it("a leader skips a match whose tickets another leader already claimed", function()
+		local s = stores()
+		for i = 1, 2 do
+			Queue.Enqueue(s, ticket(`t{i}`, { i }, i), clock, 120)
+		end
+		-- A competing leader has claimed t2 but has not finished.
+		Queue.Claim(s, "t2", "other", clock, 120)
+		local reserved = 0
+		local deps = {
+			Stores = s,
+			Matches = MemorySortedMap.new(now),
+			Reserve = function()
+				reserved += 1
+				return "code", "psid"
+			end,
+			PlaceId = 42,
+			Destination = "CasualDuel1v1",
+			Mode = "CasualDuel1v1",
+			Spec = Config.Matchmaking.Queues.CasualDuel1v1,
+			Now = clock,
+			MaxTickets = 100,
+			AssignmentSeconds = 120,
+			MatchRecordSeconds = 3600,
+			Token = "me",
+			TicketSeconds = 120,
+		}
+		expect(Matchmaker.Tick(deps).Formed).toBe(0) -- only t1 is visible: no match, nothing reserved
+		expect(reserved).toBe(0)
+		expect(Queue.Assignment(s, "t1")).toBeNil()
 	end)
 
 	it("keeps tickets queued when reserving a server fails", function()
@@ -278,6 +323,8 @@ describe("Matchmaking queue (MemoryStore semantics)", function()
 			MaxTickets = 100,
 			AssignmentSeconds = 120,
 			MatchRecordSeconds = 3600,
+			Token = "leaderA",
+			TicketSeconds = 120,
 		})
 		expect(result.Failed).toBe(1)
 		expect(#Queue.Read(s, 10)).toBe(2)

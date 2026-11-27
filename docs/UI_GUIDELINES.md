@@ -71,7 +71,7 @@ Damage numbers (optional setting) float above targets in world space, including 
 - Touch buttons are created by ContextActionService only on touch devices, at configured positions near the bottom-right.
 - Movement and jump use Roblox's standard controls, including the mobile thumbstick.
 - Camera look uses the mouse (cursor locked at centre), the right stick, or touch drag.
-- A rebinding UI is planned (NET-07).
+- These are the defaults. Players can rebind every action for keyboard/mouse and for gamepad (§7, Settings > CONTROLS; rules in `src/shared/Bindings.luau`).
 
 ## 5. Accessibility (implemented unless noted)
 - **Scalable UI:** a `UIScale` on the HUD scales with the viewport (`min(width/1600, height/900)`, clamped to 0.6–1.3), so the same layout works on phone, tablet, desktop and TV. Planned: a user text-scale setting.
@@ -101,6 +101,13 @@ The window is a centred 820 × 560 panel with ARMORY and CRATES tabs and a CLOSE
 
 Field of view (70–100), sensitivity (0.1–3.0), aim sensitivity (0.1–1.5), default camera, crosshair style, colour and size, reduced motion and damage numbers. Actions: DEFAULTS, CANCEL and SAVE. The server sanitizes and persists the settings, then echoes the result back. Every control is functional; nothing is a placeholder.
 
+**CONTROLS page (Phase 5).** A CONTROLS button at the top right switches to a scrolling list with one row per action (from `Config.Input`), showing the effective keyboard/mouse and gamepad binding.
+- **Rebinding:** click a binding (it reads `PRESS A KEY` or `PRESS A BUTTON`), then press the new input. Esc cancels. Inputs in the first 0.25 s are ignored, so the click itself is never captured.
+- **Status line:** shows the result, for example `<key> cannot be bound.` (not on the allow-list) or `<key> is already used by <Action>.`. Clashes are refused before saving, using the same `Shared/Bindings` rules the server applies.
+- **RESET CONTROLS** clears all overrides; GENERAL returns to the main page.
+- Changes take effect on SAVE: `InputController:Rebind` re-binds every action, and the server stores the sanitized overrides.
+- Touch buttons are not remappable; they keep their configured positions.
+
 ## 8. Required interfaces (spec §20)
 
 | Interface | Status |
@@ -112,8 +119,8 @@ Field of view (70–100), sensitivity (0.1–3.0), aim sensitivity (0.1–1.5), 
 | Inventory, armory | Implemented in the Collection window, also opened from the hub's Armory station (Studio verification pending) |
 | Weapon customization (skins, charms, attachments) | Planned |
 | Crate shop, crate reveal (with reduced-animation path and odds disclosure) | Implemented in the Collection window, also opened from the hub's Crate shop station (Studio verification pending) |
-| Matchmaking | Implemented as portals and the PLAY menu (public servers of each mode's place); cross-server queues are Phase 5 (NET-01) |
-| Party management, server browser | Planned (NET-02, NET-03) |
+| Matchmaking | Implemented: portals, the PLAY menu, cross-server queues with a status banner, private match hosting (§13; needs published places) |
+| Party management, server browser | Implemented (§13; needs published places for the browser) |
 | Map vote, duel spectating | Implemented (§12) |
 | Player profile, leaderboards, ranked progression | Planned (RNK-04, RNK-02) |
 | Battle pass, challenges, achievements | Planned (MON-03, PRG-04, PRG-02) |
@@ -142,3 +149,23 @@ A 340 × 150 panel on the right shows `TUTORIAL <i>/12  •  <TITLE>` and the st
 
 - **Map vote.** During intermission a 300 × 170 panel titled VOTE FOR THE NEXT MAP lists each option as a button with its live vote count; the player's choice shows `✓` and the olive background, so the choice is not shown by colour alone. Votes can be changed until the timer ends.
 - **Spectating (duels).** While eliminated, the camera orbits a surviving participant (teammates first), and a line reads `SPECTATING <NAME>   •   FIRE / AIM to switch`.
+
+## 13. Multiplayer interfaces (implemented, Phase 5: `LobbyController.luau`, `MatchmakingController.luau`, `PartyController.luau`)
+
+`MatchmakingController` and `PartyController` build their UI in the hub only.
+
+- **PLAY menu (hub).** One row per destination in `Config.Places.PlayOrder`:
+  - A queued destination (Team Deathmatch, Duel 1v1, Team Duel 2v2) is labelled `(MATCHMAKING)` and sends `JoinQueue`. Free-for-All joins a public server directly.
+  - Free-for-All and Team Deathmatch also have a SERVERS button that opens the server browser.
+  - Below the rows: HOST PRIVATE MATCH, PARTY and CLOSE.
+  - Portal prompts in the hub follow the same rule (queue or direct).
+- **Queue banner** (top centre, under the match bar). `SEARCHING: <DESTINATION>  m:ss` with CANCEL while queued, then `MATCH FOUND: <DESTINATION>. JOINING...`. Refusals and cancellations become toasts in plain language, for example "Only the party leader can do that.", "Everyone in the party must finish the tutorial first.", "Matchmaking needs published places; it cannot run in Studio.", "Joining the match failed; you're back at the front of the queue."
+- **Reconnect banner.** The same banner reads `YOUR <DESTINATION> MATCH IS STILL RUNNING` with REJOIN when the hub offers a reconnect.
+- **Server browser.** A 520 × 420 panel titled `SERVERS: <DESTINATION>`, with one row per open server (`map  •  players/max  •  phase`) and a JOIN button. REFRESH re-queries; CLOSE. An empty list explains why ("No open servers right now…" or "Server browsing needs published places.").
+- **Private host panel.** A 420 × 300 panel with MODE, MAP, DURATION and SCORE LIMIT rows, each with `<` / `>` steppers (SCORE LIMIT shows `n/a` for Free-for-All). A note states that private matches never award coins, XP or stats. CANCEL / HOST.
+- **Party panel.** A 500 × 460 scrolling list:
+  - The party size (`PARTY n/8`) and each member, marked `(leader)` and `(you)`.
+  - For the leader: KICK and LEADER buttons per member, and an INVITE list of other players in the server.
+  - LEAVE for members, and pending invites with ACCEPT / DECLINE.
+  - New invites also raise a toast.
+- Every panel registers with `UIState.SetMenuOpen` (`Browser`, `Private`, `Party`, `Play`), so the cursor is released and combat input is ignored while it is open.

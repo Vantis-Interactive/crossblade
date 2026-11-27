@@ -76,6 +76,33 @@ Server size is a Roblox place setting, not code. `MinPlayers` only decides when 
 
 **Studio cannot teleport.** Portals and the PLAY menu answer `Studio` there. Test each place on its own in Studio, and test travel between places only on published servers.
 
+## 2b. Matchmaking, reserved servers and the server browser (Phase 5)
+
+**What needs a published experience.** `TeleportService:ReserveServer`, `TeleportAsync` (including reserved access codes and `ServerInstanceId`) and cross-server MemoryStore traffic only work on live Roblox servers. In Studio:
+- `JoinQueue` and `HostPrivate` refuse with `Studio`.
+- The matchmaking leader loop does not start.
+- Arenas do not advertise themselves to the browser, and `GetServers` returns `Reason = "Studio"`.
+- The arena tutorial gate shows a notice instead of teleporting.
+- `MatchContext` treats Studio servers as public (`game.PrivateServerId` is empty).
+
+MemoryStore calls from Studio additionally need Studio Access to API Services; they are wrapped, and construction is lazy (`Matchmaking/MemoryStoreAdapter`), so failures never abort boot.
+
+**MemoryStore usage and quotas.** All matchmaking state is in MemoryStore sorted maps (`Config.Matchmaking.StoreNames`; shapes in DATA_SCHEMA.md §10). MemoryStore memory and request quotas scale with the experience's concurrent users. Every record has a short TTL (45 s to 3 h), and per-hub traffic is bounded (ARCHITECTURE.md §10). Check the MemoryStore observability dashboard in the Creator Hub after launch; nothing persists there, and no player progression depends on it.
+
+**Configuration before end-to-end testing.**
+1. Publish the hub and every arena place (§2a) to one experience. Reserved servers are created for the place whose PlaceId is in `Config.Places.Destinations` for the queued mode.
+2. Fill those PlaceIds in `src/shared/Config/Places.luau`, rebuild and re-publish every place.
+3. Server sizes still come from each place's Roblox settings (§2a). A reserved server holds only its roster.
+
+**Testing matchmaking end to end** (in a private test experience, never the production one):
+1. Create a separate private experience with the same five places and publish the builds there.
+2. Join the hub with two test accounts (or friends), complete the tutorial on each, and queue for Duel 1v1 from PLAY. Both should receive `Matched`, `Joining`, and arrive in one reserved duel server.
+3. Party test: form a 2-player party, queue Team Duel 2v2 with two more solo accounts, and confirm the party lands on one team.
+4. Reconnect test: leave the duel mid-round, rejoin the hub within 90 s, and use REJOIN.
+5. Private test: host a private Team Deathmatch with a party; confirm no coins, XP or statistics change.
+6. Browser test: start a public FFA server, then list and join it from the hub (SERVERS).
+7. Record results against TEST_PLAN.md §4.
+
 ## 3. Studio setup checklist
 
 1. Open `build/crossblade.rbxl` or any `build/<place>.rbxl`, or a published place with `rojo serve places/<place>.project.json` connected.

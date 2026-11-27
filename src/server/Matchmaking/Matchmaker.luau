@@ -21,6 +21,8 @@ export type Deps = {
 	MaxTickets: number,
 	AssignmentSeconds: number,
 	MatchRecordSeconds: number,
+	Token: string, -- unique per leader tick (e.g. JobId + time)
+	TicketSeconds: number,
 }
 
 export type Result = { Formed: number, Rejected: { string }, Failed: number }
@@ -28,7 +30,7 @@ export type Result = { Formed: number, Rejected: { string }, Failed: number }
 local Matchmaker = {}
 
 function Matchmaker.Tick(deps: Deps): Result
-	local tickets = Queue.Read(deps.Stores, deps.MaxTickets)
+	local tickets = Queue.Read(deps.Stores, deps.MaxTickets, deps.Now)
 	local byId = {}
 	for _, ticket in tickets do
 		byId[ticket.Id] = ticket
@@ -46,9 +48,26 @@ function Matchmaker.Tick(deps: Deps): Result
 		end
 	end
 	local formed, failed = 0, 0
-	for _, match in matches do
-		local ok, accessCode, privateServerId = pcall(deps.Reserve)
+	for index, match in matches do
+		-- Claim every ticket first; if another leader holds any of them, release ours and skip.
+		local claimedIds = {}
+		local allClaimed = true
+		for _, ticketId in match.TicketIds do
+			if Queue.Claim(deps.Stores, ticketId, `{deps.Token}:{index}`, deps.Now, deps.TicketSeconds) then
+				table.insert(claimedIds, ticketId)
+			else
+				allClaimed = false
+				break
+			end
+		end
+		local ok, accessCode, privateServerId = false, nil, nil
+		if allClaimed then
+			ok, accessCode, privateServerId = pcall(deps.Reserve)
+		end
 		if not ok then
+			for _, ticketId in claimedIds do
+				Queue.Release(deps.Stores, ticketId, `{deps.Token}:{index}`, deps.TicketSeconds)
+			end
 			failed += 1 -- tickets stay queued; the next tick retries
 		else
 			local record = {

@@ -24,13 +24,14 @@ Enter match -> Eliminate opponents -> Earn coins and XP -> Open crates -> Unlock
     +------------------------ Customize loadout <----------------------------+
 ```
 
-**Implemented (Phases 2–4):** the full loop, entered from the social hub.
+**Implemented (Phases 2–5):** the full loop, entered from the social hub.
 - Entering a match, eliminating opponents, scoreboard and statistics.
 - Coins and XP for eliminations, assists, streaks and match completion.
 - Crates bought with coins that unlock weapons, with duplicates converted to coins.
 - Loadout editing in the Collection window (ECONOMY.md, WEAPON_CATALOG.md).
 
 - A social hub with an armory station, crate shop station, shooting range, tutorial and matchmaking portals (section 11).
+- Phase 5: parties, cross-server matchmaking into reserved servers, reconnection, private matches, a server browser and control remapping (section 12).
 
 All of this awaits Studio verification. **Planned:** challenges, achievements and the battle pass (Phase 7).
 
@@ -46,7 +47,7 @@ Mode values live in `src/shared/Config/GameModes.luau`. Each mode has a `Kind` t
 | Casual Duel 1v1 | Duel | **Implemented** | 2 / 2 | 5 s countdown, best of five (`RoundsToWin = 3`), 120 s rounds, 4 s between rounds, 15 s intermission | Spectate until next round | 5 s per round | Yes |
 | Casual Team Duel | Duel | **Implemented** | 2 × TeamSize / 8 | Best of seven (`RoundsToWin = 4`), 150 s rounds; TeamSize 2 by default, 3v3 / 4v4 via `PlaceConfig.TeamSize` | Spectate until next round | 5 s per round | Yes |
 | Ranked Duel 1v1 / 2v2 | Duel | Planned (RNK-01 to RNK-07) | 2 / 4 | Best of nine (`RoundsToWin = 5`) | Spectate | 0 | Rating plus seasonal rewards |
-| Private Match | FreeForAll | Planned (NET-06) | 1 / 16 | Host-configured | 3 s | 5 s | **None**: no coins, XP, rating or challenge progress (`AwardsProgression = false`, tested) |
+| Private Match | FFA or TDM (host's choice) | **Implemented** (Phase 5) | the host's party | Host-configured map, 3–30 min, TDM score limit 5–200 (D-048); one match per reserved server | as the base mode | as the base mode | **None**: no coins, XP, statistics, rating or challenge progress (`AwardsProgression = false`, tested) |
 
 `MinPlayers` is the start threshold; capacity is the place's Roblox server size (D-032). Team Deathmatch starts with 2 players so it can be tested, and 5v5 / 8v8 places set a server size of 10 / 16.
 
@@ -60,6 +61,7 @@ Mode values live in `src/shared/Config/GameModes.luau`. Each mode has a `Kind` t
 | Active | Combat is allowed for participants. In duels only players still alive in the current round can fight. |
 | RoundEnd | Duel only: a 4 s pause between rounds. |
 | Intermission | Results and map vote; combat disabled; then the next match. |
+| Closed | Reserved servers only: their single match is over; everyone returns to the hub after 15 s (D-047). |
 
 Combat permission is decided by `MatchService:IsCombatAllowed` (may this player use weapons) and `MatchService:CanDamage` (may this attacker hurt this victim: both allowed, victim alive, and opponents). In team modes, teammates are never opponents, so friendly fire is impossible.
 
@@ -201,5 +203,47 @@ Twelve steps in order: movement, camera, weapon selection, aim and shoot, reload
 - Steps the client can observe (movement, camera, weapon switching, the informational coins step, travel intent) are reported by the client. Combat and economy steps complete only from server-observed events: a firearm hit on a dummy, a reload, a knife hit on a dummy, a knife recovery, both a health and an ammo pickup, a crate opening, and a loadout change.
 - Before the pickups step the server drains 60 HP (never lethally) and empties firearm reserves, so both packs are useful.
 - **Reward (SPEC):** 500 coins and one free Basic Crate, granted once per account when the coins step completes (D-036). The crate arrives as a free crate token (D-037) so the next step can teach opening it.
-- First-time players start the tutorial automatically and **must complete it** before the hub's portals will send them to a match. Players who have completed it can replay it from the Training station and exit a replay at any time; replays never grant the reward again.
+- First-time players start the tutorial automatically and **must complete it** before the hub's portals, queues, private matches or server browser will send them to a match. Arenas also check on arrival and send unfinished players back to the hub (D-051). Players who have completed it can replay it from the Training station and exit a replay at any time; replays never grant the reward again.
 
+## 12. Playing together (implemented, Phase 5)
+
+All of this needs published places to work end to end (DEPLOYMENT.md §2b); Studio refuses with an explicit message.
+
+### Parties (D-044)
+- Up to 8 players in the same hub server (SPEC). Invites need acceptance and expire after 60 s.
+- The leader invites, kicks and promotes; if the leader leaves, the next member leads.
+- The party queues, travels and hosts private matches together. Any change to the party cancels its queue ticket.
+- Cross-server invites (a friend on another hub server) are not implemented.
+
+### Queueing and matchmaking (D-041, D-043)
+
+| Destination | How you join | Team size | Party limit |
+|---|---|---|---|
+| Free-for-All | Direct: a public server filled by Roblox (PLAY, portal or server browser) | none | any (party members travel separately) |
+| Team Deathmatch | Matchmaking queue (5v5; starts with at least 4 players once the oldest ticket has waited 45 s), or a public server from the browser | 5 | 5 |
+| Duel 1v1 | Matchmaking queue | 1 | solo |
+| Team Duel 2v2 | Matchmaking queue | 2 | 2 |
+
+- The oldest ticket is always placed first, and parties are never split across teams. Matches are formed greedily, so a rare party-size combination may wait for another ticket (D-050).
+- A queued player cannot queue twice from any server. If joining the match fails, the group goes back to the front of the queue, up to two times.
+- Latency-aware matching is not implemented: Roblox gives the matchmaker no cross-server latency data.
+
+### Reserved matches (D-042, D-045, D-046, D-047)
+- A matched group plays on its own reserved server, which admits only its roster.
+- The match starts when everyone has arrived, or after 45 s if both teams are present. Otherwise it is cancelled and everyone returns to the hub.
+- One match per reserved server; afterwards everyone returns to the hub.
+
+### Reconnection
+- A player who disconnects from a reserved match has 90 s to rejoin from the hub (REJOIN banner). They keep their team and score.
+- In duels, a disconnect costs the round in progress. A rejoining duelist plays from the next round, and absent duelists sit rounds out.
+- When the window expires, the player is removed; a duel team with nobody left forfeits.
+
+### Server browser
+- Lists public Free-for-All and Team Deathmatch servers that are not full, fullest first, with map and phase.
+- Reserved and player-owned private servers are never listed.
+
+### Private matches (D-048)
+The party leader picks Free-for-All or Team Deathmatch, a map for that mode, a duration (3–30 minutes) and, for Team Deathmatch, a score limit (5–200). The whole party travels to a reserved server. Nothing earned there counts towards progression.
+
+### Control remapping (D-049)
+Every action can be rebound for keyboard/mouse and for gamepad in Settings > CONTROLS. Movement, jump, menu and system inputs can never be taken, and an input can belong to only one action. Bindings save to the profile and are re-validated by the server.

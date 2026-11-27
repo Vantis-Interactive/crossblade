@@ -47,6 +47,15 @@ All are emitted through `Shared/Util/Logger.luau` and visible in the Roblox Deve
 | Policy lookup failed | `[Policy] policy lookup failed; paid random items blocked (fail closed)` plus `[Audit] Economy:PolicyLookupFailed` | Purchased coins cannot be spent on crates by that player this session |
 | Loadout change rejected | `[Audit] Security:LoadoutChangeRejected {slot, weapon}` | A SetLoadout request referenced an unowned or wrong-slot weapon (possible tampering) |
 | Priority save failed | `[PlayerData] priority save failed; autosave will retry` | Post-economy save failed; autosave will persist it |
+| Reserved record | `[MatchContext] reserved match record loaded {mode, private}` / `reserved server has no readable match record; players will be returned` | Reserved-server boot; the second means the server fails closed (§3.16) |
+| Matchmaking leader | `[Matchmaking] matchmaking tick {destination, formed, failed}` / `leader tick failed {destination, error}` | Logged by the lease holder when it formed or failed to reserve matches |
+| Matchmaking in Studio | `[Matchmaking] Studio: matchmaking leader disabled (cannot reserve servers)` | Expected in Studio |
+| Reserved match | `[Reserved] reserved match starting` / `reserved match cancelled: players did not arrive` | Arrival decision on a reserved server (§3.16) |
+| Match teleport failed | `[Audit] Data:MatchTeleportFailed {destination, retries}` | Owner hub could not teleport a matched group; ticket requeued or cancelled (§3.14) |
+| Reserved teleport failed | `[Audit] Data:ReservedTeleportFailed {place, players, error}` | `PortalService.TeleportReserved` gave up after retries |
+| Admission refused | `[Audit] Security:ReservedAdmissionRefused {reason}` | Someone not on the roster (or past the reconnect window) reached a reserved server |
+| Private match | `[Audit] Data:PrivateMatchHosted {mode, map, players}` | A private match was reserved |
+| Instance join failed | `[Portal] instance join failed` | Server browser join failed (server closed or full) |
 
 ### Planned (Phase 10 / Phase 12)
 
@@ -127,7 +136,7 @@ Flags live in `src/shared/Config/FeatureFlags.luau`:
 2. `PortalService` already retries `TeleportAsync` 3 times with backoff; `TeleportInitFailed` (for example a full destination server) also reports to the player.
 3. Check `Data:TeleportFailed` audit context and the Roblox status page. Widespread failures for one destination usually mean a wrong or unpublished PlaceId in `Config.Places`.
 4. Arrivals that are kicked with "still being saved by another server" are session-lock contention on the destination (D-038); the destination retries the load for about 20 s before kicking. Frequent occurrences mean the source server is slow to release (§3.2).
-5. Reserved servers and cross-server queue recovery are Phase 5 (NET-01, NET-04).
+5. Matchmaking teleports to reserved servers are covered in §3.14.
 
 ### 3.10 Stuck match or player
 
@@ -152,6 +161,54 @@ Flags live in `src/shared/Config/FeatureFlags.luau`:
 1. The tutorial reward (500 coins and one Basic Crate token) is granted once per account, in transaction `tutorial-reward`, and recorded as `Economy:TutorialRewardGranted`.
 2. `Tutorial.RewardClaimed = true` in the profile means it was granted; replays never grant it again. The crate token is listed in `EconomyState.CrateTokens` until spent.
 3. A player who says they never received it but has `RewardClaimed = true` already has it; check `CrateHistory` for a token open (`UsedToken = true`). Manual grants require the owner-approved support process (DATA_SCHEMA.md §9).
+
+### 3.14 Queue stuck or matches not forming
+
+1. Players see `SEARCHING` indefinitely. First check that the destination's PlaceId is set in `Config.Places`; a 0 PlaceId refuses queueing with `NotConfigured`, but a hub built before the PlaceId was filled must be re-published.
+2. Check for `[Matchmaking] matchmaking tick` lines on some hub server. If none appear, no hub holds the lease (`CB_MM_Leases`, key `lead:<destination>`): leases expire after 15 s, so a crashed leader is replaced automatically within one lease period. Persistent absence suggests MemoryStore errors (`leader tick failed`).
+3. `failed` counts in the tick line mean `ReserveServer` errors; tickets stay queued and are retried every 3 s.
+4. Duels form only with exact team sizes; Team Deathmatch starts with 4+ players after the oldest ticket waited 45 s (D-043). Too few players in the queue is the usual cause.
+5. `Data:MatchTeleportFailed`: the group is requeued at the front up to 2 times, then cancelled with `TeleportFailed`. If one destination fails repeatedly, check the place is published and not shut down.
+6. A ticket is delivered at most once at a time: `MatchmakingService` sets `Delivering` while its teleport attempt runs, and later polls skip it.
+
+### 3.15 Stale tickets and abandoned queues
+
+No manual cleanup is needed. Tickets and user-index entries expire 120 s after the last heartbeat, which the owning hub sends every 30 s. If a hub crashes, its players are freed within about 2 minutes. A player told `AlreadyQueued` after leaving a hub abruptly can queue again once the old entry expires.
+
+### 3.16 Reserved match cancelled or failed
+
+1. `reserved match cancelled: players did not arrive`: the roster was not complete at the 45 s deadline and the match was unplayable (a team missing, or nobody in FFA private). Everyone present is returned to the hub.
+2. `reserved server has no readable match record`: the record in `CB_MM_Matches` was missing (expired after 3 h, or MemoryStore unavailable at boot). Everyone is returned to the hub (or removed with a message if the hub cannot be reached). Repeated occurrences on fresh servers point to MemoryStore errors.
+3. Reserved servers host one match (D-047), then send everyone to the hub after 15 s. A server stuck in phase `Closed` with players means the hub teleport failed and the players were removed with "Match complete".
+
+### 3.17 Reconnect issues
+
+1. A disconnected player has 90 s (D-045) to rejoin. The hub shows `REJOIN` only if `CB_MM_Active` (key `u<userId>`) holds an unexpired record when their profile loads in the hub.
+2. After the window, the player is removed from the match (`ForgetPlayer`); a duel team with nobody left forfeits. Reconnect records are cleared when the match ends.
+3. Rejoining duelists spectate until the next round (D-046). Rejoining Team Deathmatch players keep their team and score.
+4. `Security:ReservedAdmissionRefused {reason = "ReconnectExpired"}` means they came back too late.
+
+### 3.18 Private match support
+
+1. Private matches never award coins, XP or statistics (`AwardsProgression = false`, `MatchContext.ModeConfig`). Players asking for missing rewards from a private match are seeing designed behaviour.
+2. Hosting requires the party leader, a completed tutorial for every member, a published place for the base mode, and is refused in Studio. Each host is audited as `Data:PrivateMatchHosted`.
+
+### 3.19 Server browser empty
+
+1. Only public arena servers outside Studio advertise. Reserved and player-owned private servers are never listed (`ServerBrowserService.advertised`).
+2. Entries expire 45 s after the last heartbeat (every 15 s), and full servers are filtered out. An empty list with players online usually means every server is full, or `GetServers` returned `Unavailable` (MemoryStore error).
+3. Joining a listed server that has since filled or closed fails with `instance join failed`; the player stays in the hub.
+
+### 3.20 MemoryStore outage
+
+Effects:
+- Queueing refuses with `QueueUnavailable`.
+- Leader ticks fail and log.
+- The browser shows nothing.
+- New reserved servers fail closed and return players to the hub.
+- Reconnect offers are not shown.
+
+Profiles, currency and progression are unaffected (DataStore). Direct joins to public servers (FFA PLAY, portals) keep working. No action is needed beyond monitoring the Roblox status page; everything recovers when MemoryStore does, because all records are TTL-based.
 
 ## 4. Live-operations cadence (planned)
 

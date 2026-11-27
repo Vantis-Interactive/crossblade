@@ -74,5 +74,5 @@ Maps each major requirement in the master directive to its implementation and te
 | 25 | Schema validation, rate limits, state validation, suspicion scoring, movement validation, security logging, no auto-ban on weak signals | `Core/Net`, `AntiCheatService`, `Domain/MovementValidator`, `Domain/SuspicionScore`, `AuditService`, `FeatureFlags.KickOnSuspicion = false` | `NetSchema.spec`, `Domain.spec` | Done (durable audit SEC-08 planned) |
 | 25 | No secrets in replicated modules | Architecture rule; `verify-place` checks no Scripts in ReplicatedStorage | `verify-place.luau` | Done |
 | 26 | Admin dashboard, RBAC | not implemented | none | Planned (SEC-01/02) |
-| 31 | Performance targets | ARCHITECTURE.md §9 budgets | none | Not yet measured |
+| 31 | Performance targets | ARCHITECTURE.md §10 budgets | none | Not yet measured |
 | 33 | Documentation set | `docs/*`, `README.md` | none | Done |

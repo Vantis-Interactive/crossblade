@@ -46,6 +46,14 @@ Shared bounds used below: `MAX_WORLD = 20000` studs; `USER_ID = Integer(−1e12,
 | `VoteMap` | RemoteEvent | 4 / 1 | VoteController (map vote panel button) |
 | `RequestTeleport` | RemoteEvent | 2 / 0.2 | LobbyController (portal prompt, PLAY / HUB menu) |
 | `TutorialAction` | RemoteEvent | 6 / 2 | TutorialController (client-checked steps, EXIT), LobbyController (Training station prompt sends `Start`) |
+| `JoinQueue` | RemoteEvent | 2 / 0.5 | LobbyController (PLAY on a queued destination, portal prompt in the hub) |
+| `LeaveQueue` | RemoteEvent | 3 / 1 | MatchmakingController (queue banner CANCEL) |
+| `PartyAction` | RemoteEvent | 6 / 2 | PartyController (invite, accept, decline, leave, kick, promote) |
+| `RequestReconnect` | RemoteEvent | 2 / 0.2 | MatchmakingController (reconnect banner REJOIN) |
+| `GetServers` | RemoteFunction | 3 / 0.5 | MatchmakingController (server browser open and REFRESH) |
+| `JoinServer` | RemoteEvent | 2 / 0.2 | MatchmakingController (server browser JOIN) |
+| `GetPrivateOptions` | RemoteFunction | 3 / 0.5 | MatchmakingController (private host panel, first open) |
+| `HostPrivate` | RemoteEvent | 2 / 0.1 | MatchmakingController (private host panel HOST) |
 
 ### FireWeapon
 
@@ -113,6 +121,9 @@ Server checks: the `ThrownKnives` feature flag; alive and in the match; the knif
 | `CrosshairSize` | `Integer(4, 40)` | floor, `[4, 40]` |
 | `ReducedMotion` | `Boolean` | — |
 | `DamageNumbers` | `Boolean` | — |
+| `Bindings` | `Optional(Array(Struct{ Action = Enum<every Config.Input action>, Keyboard = Optional(String(32)), Gamepad = Optional(String(32)) }, 32))` | `Bindings.Sanitize` (allow-list and conflict rules, see below) |
+
+`Bindings` travels as an array (the wire form, `Bindings.ToWire`). The client keeps a dictionary `{ [action] = { Keyboard?, Gamepad? } }` in memory and must convert before sending: the dictionary form is rejected by the schema (`tests/specs/Matchmaking.spec.luau` > "Settings on the wire"). `Settings.Sanitize` accepts either form and stores the dictionary. Overrides whose input is not in `Bindings.KeyboardAllowed` / `Bindings.GamepadAllowed`, or that collide with another action's effective binding, are dropped (`src/shared/Bindings.luau`, D-049).
 
 Requires a loaded profile. The sanitized settings are stored in `profile.Data.Settings`, persisted with the next save, and echoed back in `SettingsApplied`.
 
@@ -196,6 +207,64 @@ The client never sends a PlaceId. `PortalService` resolves the destination from 
 
 Hub only (`TutorialService`). `Start` begins a new session at step 1 (used for replays from the Training station). `Exit` ends the session only if the account has already completed the tutorial. `Complete` advances only if `Step` is the current step **and** that step is `Check = "Client"` (`TutorialProgress.ClientComplete`). Server-checked steps ignore client claims and advance only from server-observed events.
 
+### JoinQueue
+
+| Field | Schema |
+|---|---|
+| `Destination` | `Enum{TeamDeathmatch, CasualDuel1v1, CasualDuelTeam}` (the keys of `Config.Matchmaking.Queues`) |
+
+Hub only (`MatchmakingService`). The whole party queues together (`PartyService:Group`). Refusals, sent as `QueueStatus { State = "Refused" }` to the caller, in this order: `UnknownDestination`; `NotLeader` (a party member who is not the leader); `PartyTooLarge` (group larger than the destination's `MaxPartySize`); `NotLoaded`, `TutorialRequired` or `AlreadyQueued` for any member (local check); `Studio`; `NotConfigured` (PlaceId 0). `Queue.Enqueue` can still refuse with `AlreadyQueued` (a member holds a live ticket on another hub server) or `QueueUnavailable` (MemoryStore error). On success every member receives `QueueStatus { State = "Queued", Since }`.
+
+### LeaveQueue
+
+Empty payload. Cancels the caller's group ticket (any member may cancel); members receive `QueueStatus { State = "Cancelled", Reason = "Left" }`.
+
+### PartyAction
+
+| Field | Schema |
+|---|---|
+| `Action` | `Enum{Invite, Accept, Decline, Leave, Kick, Promote}` |
+| `TargetUserId` | `Optional(UserId)` (Invite, Kick, Promote) |
+| `PartyId` | `Optional(Integer(1, 1e9))` (Accept, Decline) |
+
+Hub only (`PartyService`, rules in `Domain/PartyState`). `Invite` requires the target to be in this server (`NotInServer`), not in a party, and the inviter to be the leader or solo (a solo inviter becomes the leader of a new party); invites expire after `Config.Matchmaking.InviteSeconds` (60). `Accept` requires a live invite and free capacity (`MaxPartySize` 8). Kick and Promote are leader-only. Refusals are sent as a `Notification` (`Party: <reason>`). Every affected player receives a fresh `PartyState`; any membership change also cancels the affected players' queue tickets (`PartyChanged`).
+
+### RequestReconnect
+
+Empty payload. Hub only. Valid only after the server sent `ReconnectOffer` for this player: `MatchmakingService` teleports the player to the stored reserved server (`PortalService:TeleportReserved`). The offer is consumed on use; failures are reported through `TeleportStatus` (`Studio` or `Failed`).
+
+### GetServers (RemoteFunction)
+
+| Field | Schema |
+|---|---|
+| `Destination` | `Enum{FreeForAll, TeamDeathmatch}` |
+
+Returns `{ Servers = { { JobId, Players, MaxPlayers, Map, Phase, UpdatedAt } }, Reason? }`. Only answered with data in the hub outside Studio; otherwise `Servers = {}` with `Reason = "Studio"` or `"NotHub"`, and `"Unavailable"` on a MemoryStore error. Full servers are filtered out; at most `Config.Matchmaking.Browser.MaxListed` (25), fullest first (`ServerBrowserService`).
+
+### JoinServer
+
+| Field | Schema |
+|---|---|
+| `Destination` | `Enum{FreeForAll, TeamDeathmatch}` |
+| `JobId` | `String(64)`, additionally required to match `^[%w%-]+$` |
+
+Hub only. Goes through the same refusal checks as `RequestTeleport` (`PortalService.JoinInstance`), then `TeleportAsync` with `TeleportOptions.ServerInstanceId = JobId`. The client never supplies a PlaceId.
+
+### GetPrivateOptions (RemoteFunction)
+
+Empty payload. Returns `{ Modes = { [modeId] = { DisplayName, Maps = { { Id, DisplayName } } } }, Order = { modeId }, DurationMinutes = { Min, Max, Default }, ScoreLimit = { Min, Max, Default } }` built from `Config.Matchmaking.Private` and `MapService:MapsForMode` (`PrivateMatchService`).
+
+### HostPrivate
+
+| Field | Schema | Server rule |
+|---|---|---|
+| `Mode` | `Enum{FreeForAll, TeamDeathmatch}` | must be in `Config.Matchmaking.Private.Modes` |
+| `MapId` | `String(64)` | replaced by the mode's first map if not valid for the mode |
+| `DurationMinutes` | `Integer(1, 60)` | clamped to `[3, 30]` |
+| `ScoreLimit` | `Integer(1, 500)` | clamped to `[5, 200]`; used by Team Deathmatch only |
+
+Hub only. Refusals (sent as `TeleportStatus { Ok = false }`): `NotLeader`, `UnknownDestination`, `TutorialRequired` (any member), `Studio`, `NotConfigured`, `Failed` (ReserveServer or record write failed). On success the server reserves a server of the mode's place, writes the match record (`Private = true`) and teleports the whole party.
+
 ## 3. Server → client
 
 Payloads as constructed at the call sites listed.
@@ -212,13 +281,16 @@ Payloads as constructed at the call sites listed.
 | `MatchState` | RemoteEvent | all, or the joining player | `MatchService` (phase changes, match and round start and end, Team Deathmatch score changes, joins during Waiting/Countdown, profile loaded) |
 | `Scoreboard` | RemoteEvent | all | `MatchService` (batched, at most every 0.5 s when changed) |
 | `Announcement` | RemoteEvent | all | `MatchService` (killstreaks, duel round start and result, match winner) |
-| `Notification` | RemoteEvent | one player | `PickupService`, `PlayerDataService` (Studio ephemeral warning), `InventoryService` (loadout saved or rejected) |
+| `Notification` | RemoteEvent | one player | `PickupService`, `PlayerDataService` (Studio ephemeral warning), `InventoryService` (loadout saved or rejected), `PartyService` (refused party actions), `PortalService` (`SendToHub` messages, arena tutorial gate) |
 | `SettingsApplied` | RemoteEvent | one player | `PlayerDataService` (SaveSettings) |
 | `EconomyState` | RemoteEvent | one player | `EconomyService.PushState`: on profile load, after every applied grant, after crate opens, on `InventoryService.Changed` and `PolicyComplianceService.StatusChanged` |
 | `Reward` | RemoteEvent | one player | `EconomyService.Grant` (when an applied grant gave more than 0 coins or XP) and `EconomyService.GrantTutorialReward` |
 | `MapVote` | RemoteEvent | all | `MatchService` batch loop, when votes changed (initial options arrive in `MatchState.Vote`) |
 | `TutorialState` | RemoteEvent | one player | `TutorialService` (profile load, start, every step change, exit) |
-| `TeleportStatus` | RemoteEvent | one player | `PortalService` (start, refusal, failure, `TeleportInitFailed`) |
+| `TeleportStatus` | RemoteEvent | one player | `PortalService` (start, refusal, failure, `TeleportInitFailed`), `PrivateMatchService` (host refusals), `MatchmakingService` (reconnect failure) |
+| `QueueStatus` | RemoteEvent | each member of the queued group | `MatchmakingService` (queued, refused, cancelled, matched, joining, requeued) |
+| `PartyState` | RemoteEvent | each affected player | `PartyService` (after every action and departure) |
+| `ReconnectOffer` | RemoteEvent | one player | `MatchmakingService` (hub profile load, when an unexpired reconnect record exists) |
 
 ### Payload shapes
 
@@ -258,7 +330,8 @@ Eliminated = {
 
 MatchState = {
 	Mode = modeId, ModeName, Kind = "Lobby" | "FreeForAll" | "TeamDeathmatch" | "Duel",
-	Phase = "Lobby" | "Waiting" | "Countdown" | "Active" | "RoundEnd" | "Intermission",
+	Phase = "Lobby" | "Waiting" | "Countdown" | "Active" | "RoundEnd" | "Intermission" | "Closed",
+	                                -- "Closed": a reserved server's single match is over (D-047)
 	MatchId = int,
 	EndsAt = serverTime,            -- phase deadline; the round deadline while a duel round is active
 	MapName, MapId,
@@ -267,6 +340,8 @@ MatchState = {
 	Duel = { Round = int, Wins = { A = int, B = int }, RoundsToWin = int }?,
 	TeamSize = int?,                                    -- duels
 	RespawnEnabled = boolean,
+	Reserved = boolean,             -- server reserved by matchmaking or a private match
+	Private = boolean,              -- private match (no progression)
 	PlayersNeeded = int, PlayerCount = int,             -- start threshold and loaded players
 	Results = { { Rank, Name, Team?, Eliminations, Deaths, Assists } }?,  -- top 16, intermission only
 	WinnerTeam = "A" | "B" | nil,                       -- intermission only
@@ -283,6 +358,23 @@ Announcement =
 	| { Kind = "Round", Round = int, Wins = { A, B } }
 	| { Kind = "RoundResult", Team?, TeamName?, Draw = boolean, Wins = { A, B } }
 	| { Kind = "MatchWinner", Team, TeamName }
+
+QueueStatus = {
+	State = "Queued" | "Requeued" | "Matched" | "Joining" | "Cancelled" | "Refused",
+	Destination = destinationId,
+	Since = unixSeconds?,           -- Queued: ticket CreatedAt (os.time)
+	Reason = string?,               -- Refused: see JoinQueue; Cancelled: Left | PartyChanged | MemberLeft |
+	                                --   Expired | TeleportFailed | PartyTooLarge (rejected by the leader)
+}
+
+PartyState = {
+	PartyId = int?, Leader = userId?,                   -- nil when not in a party
+	Members = { { UserId, Name } },
+	Invites = { { PartyId, From = leaderDisplayName, ExpiresAt = unixSeconds } },  -- pending, unexpired
+	MaxSize = int,
+}
+
+ReconnectOffer = { Destination = destinationId, ExpiresAt = unixSeconds }
 
 TutorialState = {
 	Active = boolean, Index = int?, StepId = string?, Total = int,

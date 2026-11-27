@@ -76,6 +76,7 @@ Values are the defaults produced by `Schema.Default(userId, now)`.
 | `Purchases.Receipts` | map | `{}` | Durable purchase records | Phase 7 |
 | `Entitlements` | map | `{}` | VIP, pass ownership and similar | Phase 7 |
 | `Settings` | `Settings` table | `Settings.Defaults()` | FOV, sensitivity, aim sensitivity, perspective, crosshair style/colour/size, reduced motion, damage numbers. Sanitized by the server on save. | Phase 2 |
+| `Settings.Bindings` | `{ [action]: { Keyboard: string?, Gamepad: string? } }` | `{}` | Input remapping overrides only; actions without an entry use `Config.Input` defaults. Stored as a dictionary, sent over the network as an array (`Bindings.ToWire`). `Settings.Sanitize` → `Bindings.Sanitize` drops unknown actions, inputs outside the allow-lists, and colliding overrides (D-049). Added by Reconcile; schema stays v2 | Phase 5 (implemented) |
 | `Tutorial.Completed` / `RewardClaimed` | boolean | `false` / `false` | `Completed` is set by TutorialService when the last step finishes; until then the hub refuses teleports (D-036). `RewardClaimed` is set inside the `tutorial-reward` transaction, so the reward is granted once | Phase 4 (implemented) |
 | `LoginRewards.LastClaimDay` / `Streak` | integer | `0` / `0` | Login rewards | Planned (Phase 7; not yet used) |
 | `Moderation.Warnings` | integer | `0` | Moderation status | Phase 8 |
@@ -211,4 +212,23 @@ Phase 8 will provide tooling. Until then, these are manual procedures for the ow
 | `Corrupt` record | The record is preserved untouched. Export it, repair the JSON by hand to a valid envelope at the current schema version (`{Data = {...}, Lock = nil}`), and write it back. Use DataStore key versioning (`ListVersionsAsync` / `GetVersionAsync`) to recover the last good version. |
 | `FutureVersion` kicks after a rollback | Expected: older servers refuse newer data. Roll forward, or shut down old servers so players reach servers on the current version. Never write v(n+1) data back as v(n). |
 | Player reports lost progress | Use DataStore version history for `player_<UserId>` to find the last good version and restore it with an audited manual write. Planned tooling: SEC-05 (economy reconciliation) and SEC-08. |
-| Right-to-erasure request | Remove the key `player_<UserId>` from all three environment stores. UserIds are associated on every write. |
+| Right-to-erasure request | Remove the key `player_<UserId>` from all three environment stores. UserIds are associated on every write. MemoryStore records keyed by user (`u<UserId>` in `CB_MM_Users` and `CB_MM_Active`) and rosters in `CB_MM_Matches` expire on their own within 3 hours (§10). |
+
+## 10. MemoryStore records (Phase 5, not persistent)
+
+Matchmaking state lives in MemoryStore sorted maps, never in the player's DataStore record. Every entry has a TTL, so nothing here survives longer than its window, and losing all of it (an outage) costs no progression. Names come from `Config.Matchmaking.StoreNames`; access is through `src/server/Matchmaking/MemoryStoreAdapter.luau`.
+
+| Map | Key | Value | TTL | Written by | Read by |
+|---|---|---|---|---|---|
+| `CB_MM_Tickets_<destination>` | ticket id (GUID); sort key `CreatedAt` | `{ Id, Destination, Members = { userId }, CreatedAt = os.time, HubJobId, Retries }` | 120 s, refreshed every 30 s by the owning hub | `Queue.Enqueue`, `Queue.Requeue` | leader tick (`Queue.Read`) |
+| `CB_MM_Users` | `u<userId>` | `{ TicketId, Destination, ExpiresAt }` | 120 s, refreshed with the ticket | `Queue.Enqueue`, `Queue.Heartbeat` | `Queue.Enqueue` (duplicate check) |
+| `CB_MM_Assign` | ticket id | `{ PlaceId, AccessCode, PrivateServerId }` or `{ Rejected = true, Reason = "PartyTooLarge" }` | 120 s | `Queue.Assign` (leader) | owning hub (`Queue.Assignment`) |
+| `CB_MM_Leases` | `lead:<destination>` | `{ Holder = JobId, ExpiresAt }` | 15 s | `Queue.AcquireLease` | `Queue.AcquireLease` |
+| `CB_MM_Matches` | `PrivateServerId` | queued match: `{ Destination, Mode, Teams = { A = { userId }, B = { userId } }, Private = false, AccessCode, PlaceId, CreatedAt }`; private match: `{ Destination, Mode = "Private", BaseMode, Private = true, Settings = { MapId, DurationMinutes, ScoreLimit }, Teams, AccessCode, PlaceId, CreatedAt }` (FFA rosters use team `A` only) | 3 h | `Matchmaker.Tick`, `PrivateMatchService` | `MatchContext.Load` on the reserved server |
+| `CB_MM_Active` | `u<userId>` | reconnect record `{ PlaceId, AccessCode, Destination, ExpiresAt }` | 3 h; removed when the match ends or the reconnect window expires | `ReservedMatchService` (on admission) | `MatchmakingService` (hub profile load: `ReconnectOffer`) |
+| `CB_MM_Servers_<destination>` | `JobId`; sort key `-players` | `{ JobId, Players, MaxPlayers, Map, Phase, UpdatedAt }` | 45 s, refreshed every 15 s; removed on shutdown | `ServerBrowserService` (public arena servers) | `GetServers` in the hub |
+
+Notes:
+- Times inside values are `os.time()` seconds, compared across servers.
+- Access codes appear only in these server-side records and are never sent to clients.
+- `Queue.Cancel` removes the ticket and its members' user-index entries; abandoned entries simply expire.

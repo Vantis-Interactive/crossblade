@@ -35,7 +35,7 @@ local MatchmakingService = {
 	Dependencies = { "Net", "PlayerDataService", "PartyService", "PortalService", "AuditService" },
 }
 
-type Local = { Ticket: Queue.Ticket, Since: number }
+type Local = { Ticket: Queue.Ticket, Since: number, Delivering: boolean? }
 
 local tickets: { [string]: Local } = {}
 local byUser: { [number]: string } = {}
@@ -238,6 +238,8 @@ local function leaderTick(destination: string, spec: any)
 		MaxTickets = M.Leader.MaxTicketsPerTick,
 		AssignmentSeconds = M.Assignment.TimeToLiveSeconds,
 		MatchRecordSeconds = M.Reserved.MatchRecordSeconds,
+		Token = `{game.JobId}:{os.clock()}`,
+		TicketSeconds = M.Ticket.TimeToLiveSeconds,
 	})
 	if result.Formed > 0 or result.Failed > 0 then
 		log:Info(
@@ -353,9 +355,16 @@ function MatchmakingService.Start(_self: typeof(MatchmakingService))
 		while true do
 			task.wait(M.Assignment.PollSeconds)
 			for ticketId, entry in tickets do
-				local ok, assignment = pcall(Queue.Assignment, stores(entry.Ticket.Destination), ticketId)
-				if ok and assignment then
-					task.spawn(deliver, entry, assignment)
+				-- In-flight guard: delivery can yield for seconds while teleport retries run.
+				if not entry.Delivering then
+					local ok, assignment = pcall(Queue.Assignment, stores(entry.Ticket.Destination), ticketId)
+					if ok and assignment then
+						entry.Delivering = true
+						task.spawn(function()
+							deliver(entry, assignment)
+							entry.Delivering = false
+						end)
+					end
 				end
 			end
 		end

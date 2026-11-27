@@ -13,6 +13,7 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 ### Fixed
 - Settings saves would have been rejected once bindings existed (dictionary sent where the contract requires an array); now converted, with a regression test.
 - Reserved duels: absent rostered players no longer count as alive.
+- Matchmaking: an in-flight guard prevents double delivery of an assignment, and atomic ticket claims prevent two leaders from assigning the same ticket under clock skew.
 
 ## [0.4.0] - 2026-11-26 (Phase 4: hub and casual modes, unverified in Studio)
 ### Added
