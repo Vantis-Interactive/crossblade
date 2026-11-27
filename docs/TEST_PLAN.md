@@ -7,6 +7,7 @@
 | Unit | Pure rule modules: combat math, ammo, knives, validation, spawn scoring, persistence, transactions, schema, config | Lune + `tests/lib/Harness` (TestEZ-style) | Locally and in CI (`lune run tests/run`) |
 | Map data | Greybox layout: marker counts, no pickup or spawn inside geometry, everything inside the perimeter | `tests/specs/DevArena.spec.luau` | Locally and in CI |
 | Mode rules | Team balancing, TDM outcome, duel rounds, forfeits and time limit, map voting, tutorial step machine and one-time reward, mode and place configuration | `tests/specs/Modes.spec.luau` | Locally and in CI |
+| Matchmaking | Match forming, parties, reserved-server admission and start rules, queue lifecycle (duplicates, expiry, cancel, requeue, leases) against an in-memory MemoryStore double, leader tick, remapping, settings wire format, private match mode | `tests/specs/Matchmaking.spec.luau` | Locally and in CI |
 | Static integrity | All source, including Roblox-only code: Luau compilation, require-path resolution, declared dependencies, acyclic graphs, remote-name/contract agreement | `tests/specs/Integrity.spec.luau` | Locally and in CI |
 | Lint / format | Undefined globals, unused variables, suspicious patterns; formatting | Selene (`roblox_min` std, D-006), StyLua | Locally and in CI |
 | Build / structure | Rojo build succeeds; built place has the required instances and properties; no executable scripts in ReplicatedStorage | `rojo build`, `scripts/verify-place.luau` | Locally and in CI |
@@ -22,8 +23,8 @@ Executed in this repository on 2026-11-26 with Lune 0.11.1, Selene 0.31.0, StyLu
 
 - `stylua --check src tests scripts`: pass
 - `selene src` and `selene tests`: 0 errors, 0 warnings
-- `lune run tests/run`: **195 passed, 0 failed, across 17 spec files**
-- `rojo build` for the default project and all five places (hub, FFA, TDM, Duel 1v1, Team Duel 2v2): pass. `scripts/verify-place.luau`: pass for each place, including its `PlaceConfig` role and mode (21 server services; TutorialService boots only in the hub)
+- `lune run tests/run`: **223 passed, 0 failed, across 18 spec files**
+- `rojo build` for the default project and all five places (hub, FFA, TDM, Duel 1v1, Team Duel 2v2): pass. `scripts/verify-place.luau`: pass for each place, including its `PlaceConfig` role and mode (26 server services; hub-only and arena-only services boot only in their role)
 
 Phase 3 economy guarantees were mutation-tested. Letting purchased coins bypass the policy check, skewing crate selection away from the disclosed odds, and doubling duplicate compensation were each caught by `Economy.spec`.
 
@@ -47,7 +48,7 @@ The harness's ability to fail was checked with a deliberately failing spec. The 
 | 10 | Private matches cannot generate normal progression rewards | **Pass** (rule) | `Foundation.spec` > "private matches cannot generate normal progression rewards" (mode flag); `Economy.spec` > "pays nothing for self, environmental or disabled-mode eliminations". `EconomyService.rewardsEnabled` also disables rewards in player-owned private servers. End-to-end private matches arrive in Phase 5 (NET-06) |
 | 11 | Failed data loads cannot erase existing profiles | **Pass** | `ProfileStore.spec` > "failed data loads cannot erase existing profiles (store outage)", "never overwrites corrupt records", "refuses data written by a newer schema version", "does not write when a migration fails", "refuses to load a profile locked by another live server and does not write" |
 | 12 | Unauthorized players cannot execute administrator commands | **Not implemented** | No administrator commands exist yet; Phase 8 (SEC-01) |
-| 13 | Matchmaking failures recover without trapping players | **Not implemented** | Phase 5 (NET-01/04) |
+| 13 | Matchmaking failures recover without trapping players | **Pass** (rules) | `Matchmaking.spec`: "abandoned tickets expire unless heartbeated", "requeue after a failed teleport keeps the place in line, then gives up", "keeps tickets queued when reserving a server fails", "cancels when a team never arrives". End-to-end needs published places (M-38) |
 | 14 | Ranked rewards cannot be granted multiple times | **Not implemented** | Phase 6 |
 | 15 | Weapon rarity does not automatically increase combat power | **Pass** | `WeaponCatalog.spec` > "weapon rarity does not automatically increase combat power", "no combat module reads rarity" |
 
@@ -91,6 +92,14 @@ Setup: publish the place, set the avatar type to R15, enable Studio Access to AP
 | M-32 | Team duel place, 5 players | 4 play 2v2 and the 5th spectates until the next match |
 | M-33 | Map vote at match end | Panel lists up to 3 maps; votes update live; winning map loads and everyone respawns on it |
 | M-34 | Published places with PlaceIds configured | Portals and PLAY teleport to the right place; a full or failed destination shows a failure message and the player stays playable |
+| M-35 | Hub with 3 players: invite, accept, kick, promote, leave | Party panel updates for everyone; the leader leaving promotes the next member |
+| M-36 | Settings > CONTROLS: rebind Reload to T; try binding W | T reloads after SAVE and rejoin; W is refused ("cannot be bound") |
+| M-37 | Published: queue Duel 1v1 from two hubs | Both matched to one reserved server; the duel starts when both arrive; both return to the hub after it |
+| M-38 | Published: queue, then leave the hub before a match forms | The ticket is cancelled; the other queued player keeps waiting; no ghost matches |
+| M-39 | Published: disconnect mid-duel, rejoin from the hub banner within 90 s | Same team; the lost round counts; play resumes next round |
+| M-40 | Published: host a private TDM with a party | Reserved server with the chosen map, duration and score; no coins or XP afterwards |
+| M-41 | Published: SERVERS lists public FFA/TDM servers; JOIN | Joins that exact server |
+| M-42 | Published: join an arena with an account that has not finished the tutorial | Sent back to the hub with a message |
 
 ## 5. Planned test additions by phase
 

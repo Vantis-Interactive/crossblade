@@ -2,6 +2,18 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are pre-release development milestones.
 
+## [0.5.0] - 2026-11-27 (Phase 5: multiplayer infrastructure, unverified end to end)
+### Added
+- Cross-server matchmaking on MemoryStore for TDM, Duel 1v1 and Duel 2v2, with party tickets, per-user duplicate prevention, heartbeats and expiry, leader leases, server reservation, assignments, and requeue on failed teleports.
+- Reserved match servers: roster loaded by PrivateServerId before boot (fail closed), admission control, arrival deadline, single match, return to hub.
+- Reconnection to unfinished reserved matches (hub banner, 90 s window).
+- Parties of up to 8 in the hub; private matches with chosen mode, map, duration and score limit (no progression); public server browser.
+- Keyboard and gamepad remapping with a shared allow-list and conflict rules.
+- Arena-side tutorial gate.
+### Fixed
+- Settings saves would have been rejected once bindings existed (dictionary sent where the contract requires an array); now converted, with a regression test.
+- Reserved duels: absent rostered players no longer count as alive.
+
 ## [0.4.0] - 2026-11-26 (Phase 4: hub and casual modes, unverified in Studio)
 ### Added
 - Five places from one codebase (hub, Free-for-All, Team Deathmatch, Duel 1v1, Team Duel 2v2) via `places/*.project.json` and `PlaceConfig`.

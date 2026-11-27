@@ -55,7 +55,16 @@ Maps each major requirement in the master directive to its implementation and te
 | 17 | Standardized map modules and tags; multiple maps | `MapService`, `Maps/DevArena`, `Maps/DevOutpost`, `Maps/DevHub` | `DevArena.spec` (every map) | Done (3 greybox maps of 10) |
 | 18 | Hub: plaza, armory, crate shop, range, parkour, portals, tutorial entrance; no PvP | `Maps/DevHub`, Lobby mode (`MatchService.CanDamage`), `TrainingService`, `PortalService`, `LobbyController` | `Modes.spec` (mode config) | Done, Studio (VIP lounge, battle pass, quests, leaderboards planned) |
 | 18 | Every lobby destination reachable from the main interface | `LobbyController` PLAY menu, HUD COLLECTION and SETTINGS buttons | none | Done, Studio |
-| 19 | Teleports, failed teleport recovery, untrusted teleport data | `PortalService` (destination whitelist, retry, `TeleportInitFailed`) | none (needs published places, M-34) | Partial (matchmaking queues and parties: Phase 5) |
+| 19 | Teleports, failed teleport recovery, untrusted teleport data | `PortalService` (whitelist, retry, `TeleportInitFailed`), `Core/MatchContext` (records by PrivateServerId) | `Matchmaking.spec` (requeue, reserved roster) | Done (end-to-end needs published places) |
+| 19 | Automatic matchmaking with MemoryStore; queue expiry, cancel, duplicates, abandoned cleanup | `Matchmaking/Queue`, `Matchmaking/Matchmaker`, `Domain/MatchFormer`, `MatchmakingService` | `Matchmaking.spec` > MatchFormer, queue | Done |
+| 19 | Parties up to 8 respecting mode capacity | `Domain/PartyState`, `PartyService`, `Config.Matchmaking.Queues[*].MaxPartySize` | `Matchmaking.spec` > PartyState | Done (same-server parties) |
+| 19 | Public server browser | `ServerBrowserService`, `MatchmakingController` | none (needs published places) | Done |
+| 19 | Reserved matches, reconnection | `ReservedMatchService`, `Domain/ReservedRoster`, `MatchService` reserved mode | `Matchmaking.spec` > ReservedRoster | Done |
+| 5, 19 | Private matches: configurable maps, teams, durations, victory conditions; no progression | `PrivateMatchService`, `MatchContext.ModeConfig` | `Matchmaking.spec` > Private match mode | Done |
+| 19 | Cross-platform matchmaking | Queues are platform-agnostic | none | Done by design |
+| 19 | Latency-aware matchmaking | not implemented (no cross-server latency data) | none | Not implemented (NET-08) |
+| 6 | Platform-specific controls / remapping | `Shared/Bindings`, `InputController.Rebind`, Settings CONTROLS page | `Matchmaking.spec` > Bindings, Settings on the wire | Done, Studio |
+| 27 | First-time players must complete the tutorial (all places) | Hub `PortalService.refusal`, arena `PortalService` gate, `MatchmakingService.refusal`, `PrivateMatchService` | `Modes.spec` (tutorial rules) | Done |
 | 27 | Guided tutorial (12 steps), reward once, replayable | `Config/Tutorial`, `Domain/TutorialProgress`, `TutorialService`, `TutorialController`, `EconomyService.GrantTutorialReward` | `Modes.spec` > TutorialProgress | Done, Studio |
 | 20 | Tactical UI, responsive, scalable text, reduced motion, controller navigation | `Config/Theme`, `UI/Build`, `HUDController` (UIScale), `SettingsController` (GuiService selection) | none | Combat HUD and settings done, Studio; other screens planned |
 | 21 | Audio | not implemented | none | **Blocked** (AUD-001/002) |

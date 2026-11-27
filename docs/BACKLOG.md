@@ -79,7 +79,18 @@ Ordered by dependency. Status: **Done** means implemented and covered by automat
 | MOD-03 | Map voting between matches (second greybox map added) | Done (rules tested), needs Studio verification |
 
 ## Phase 5: Multiplayer infrastructure
-NET-01 MemoryStore queues · NET-02 parties (up to 8) · NET-03 server browser · NET-04 reserved servers and teleport recovery (basic retry and failure recovery done in PortalService) · NET-05 reconnection · NET-06 private matches (no progression; flag already modelled in `GameModes.Private`) · NET-07 input remapping UI. All Planned.
+
+| ID | Item | Status |
+|---|---|---|
+| NET-01 | MemoryStore matchmaking queues (TDM, Duel 1v1, Duel 2v2): duplicate prevention, expiry, cancel, leader lease | Done (rules tested against a MemoryStore double); **needs published places** |
+| NET-02 | Parties up to 8 (hub, same server) | Done, needs Studio verification. Cross-server invites planned |
+| NET-03 | Public server browser (FFA, TDM) | Done; needs published places |
+| NET-04 | Reserved servers, failed-teleport requeue, arrival timeout, return to hub | Done (rules tested); needs published places |
+| NET-05 | Reconnection to an unfinished reserved match | Done (rules tested); needs published places |
+| NET-06 | Private matches (party-hosted; map, duration, score limit; no progression) | Done (rules tested); needs published places |
+| NET-07 | Keyboard and gamepad remapping | Done (rules tested), needs Studio verification |
+| NET-08 | Latency-aware matchmaking | **Not implemented**: Roblox exposes no cross-server latency estimate to a matchmaker. Region-aware queues would need a documented approach first |
+| NET-09 | Tutorial gate in arenas | Done |
 
 ## Phase 6: Competitive
 RNK-01 rating system · RNK-02 divisions · RNK-03 ranked matchmaking · RNK-04 leaderboards · RNK-05 spectator · RNK-06 match history · RNK-07 anti-boosting and abandonment penalties · RNK-08 projectile rewind (D-011). All Planned.

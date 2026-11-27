@@ -44,6 +44,17 @@ Architecture and design decisions, newest last. Each entry records the context, 
 | D-038 | Teleports rely on the session-lock retry at the destination | Accepted (revisit in Phase 5) |
 | D-039 | Team victory XP equals first-place XP | Proposed: **Needs owner approval** |
 | D-040 | Hub practice and non-progression modes never change persistent statistics | Accepted |
+| D-041 | MemoryStore matchmaking: group tickets, user index, assignments, leased leader | Accepted |
+| D-042 | Reserved servers read their roster by PrivateServerId; teleport data never trusted | Accepted |
+| D-043 | Queue sizes: TDM 5v5 with a relaxed start; exact duel sizes | Proposed: **Needs owner approval** |
+| D-044 | Parties are per hub server; no cross-server invites yet | Accepted (revisit) |
+| D-045 | Matchmaking and reconnection timings | Proposed: **Needs owner approval** |
+| D-046 | Duel disconnects cost the round; forfeit after the reconnect window | Accepted |
+| D-047 | Reserved servers host exactly one match | Accepted |
+| D-048 | Private match bounds | Proposed: **Needs owner approval** |
+| D-049 | Remapping allow-list and order-independent conflict resolution | Accepted |
+| D-050 | Greedy match forming | Accepted |
+| D-051 | Arenas return players who have not finished the tutorial | Accepted |
 
 ---
 
@@ -210,3 +221,36 @@ Every crate passes boot-time validation; each one's expected duplicate compensat
 
 ### D-040: Hub practice and non-progression modes never change persistent statistics
 **Decision.** `MatchService.TracksStats()` returns the mode's `AwardsProgression`. Combat, projectile and match statistics are written only when it is true, so dummy practice cannot inflate accuracy and private matches cannot change stats.
+
+### D-041: MemoryStore matchmaking: group tickets, user index, assignments, leased leader
+**Decision.** A queued group (a party or a solo player) is one ticket in `CB_MM_Tickets_<destination>`, sorted by creation time. A per-user index entry (`CB_MM_Users`) prevents anyone holding two live tickets across servers; conflicting enqueues roll back. Tickets and index entries expire (120 s) unless the owning hub heartbeats them (every 30 s), so a crashed hub cannot strand anyone. One hub per destination holds a 15 s lease (`CB_MM_Leases`), forms matches, reserves servers, writes the match record (`CB_MM_Matches`, keyed by PrivateServerId) and an assignment per ticket (`CB_MM_Assign`). The owning hub then teleports the group. A failed teleport requeues the ticket with its original creation time, up to twice. The logic lives in `Matchmaking/Queue` and `Matchmaking/Matchmaker` and is tested against an in-memory sorted-map double.
+
+### D-042: Reserved servers read their roster by PrivateServerId; teleport data never trusted
+**Decision.** `TeleportService:ReserveServer` returns an access code and a PrivateServerId. The record is stored under the PrivateServerId, and the reserved server reads it in `Core/MatchContext.Load` before any service boots. Teleport data can be tampered with by clients, so it is informational only. A reserved server that cannot read its record returns every player to the hub.
+
+### D-043: Queue sizes: TDM 5v5 with a relaxed start; exact duel sizes
+**Decision.** TDM queues form 5v5 matches. Once the oldest ticket has waited 45 s, a match may start with 4 or more players across two teams. Duel queues need exactly 2 (1v1) or 4 (2v2) players. Public TDM servers remain available through the server browser. **Needs owner approval.**
+
+### D-044: Parties are per hub server; no cross-server invites yet
+**Decision.** Parties of up to 8 form among players in the same hub server, and an invite must be accepted before it expires (60 s). Any player in the server can be invited. Cross-server friend invites (via MessagingService) are not implemented yet. Players can join a friend's hub server through Roblox's own join feature, then party up.
+
+### D-045: Matchmaking and reconnection timings
+**Decision.** Rostered players have 45 s to arrive. A disconnected player may reconnect within 90 s. Players return to the hub 15 s after a reserved match ends. Ticket TTL is 120 s with a 30 s heartbeat. All values are in `Config.Matchmaking`. **Needs owner approval.**
+
+### D-046: Duel disconnects cost the round; forfeit after the reconnect window
+**Decision.** On a reserved duel server, a disconnect eliminates the player for the current round, and absent duelists sit out each round until they return. When the reconnect window expires, the player is removed from the roster, and a team with nobody left forfeits. Ranked abandonment penalties are Phase 6.
+
+### D-047: Reserved servers host exactly one match
+**Decision.** After the match ends, the phase becomes `Closed`, reconnect records are cleared, and everyone returns to the hub. Late joiners to a closed server are returned straight away.
+
+### D-048: Private match bounds
+**Decision.** Private matches can be hosted on Free-for-All or Team Deathmatch, with any map eligible for that mode, 3–30 minutes, and a score limit of 5–200 (TDM). The host's party is the roster. Private matches use a derived mode with `AwardsProgression = false` and no map vote. **Needs owner approval.**
+
+### D-049: Remapping allow-list and order-independent conflict resolution
+**Decision.** Players can rebind any action to allow-listed keys only. Movement, jump, Escape and other system keys are never bindable. Candidate overrides are applied first, then any override colliding with another action's effective binding is dropped repeatedly until stable. Swaps therefore work, and when two overrides take the same key exactly one keeps it. The client previews the same rules (`Shared/Bindings`) that the server applies.
+
+### D-050: Greedy match forming
+**Decision.** `Domain/MatchFormer` places tickets oldest first, keeps parties together, and always includes the oldest ticket. It is greedy, so in rare party-size combinations it can miss a packing that would have worked; the next tick tries again as tickets change.
+
+### D-051: Arenas return players who have not finished the tutorial
+**Decision.** Closing the bypass noted in Phase 4: an arena's `PortalService` sends any player whose `Tutorial.Completed` is false back to the hub. In Studio, it shows a notice instead.

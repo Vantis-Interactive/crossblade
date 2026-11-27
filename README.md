@@ -2,7 +2,7 @@
 
 Crossblade (working title, see docs/DECISIONS.md D-001) is a fast-paced, skill-based multiplayer PvP arena game for Roblox with guns and knives. It is free-to-play, has no pay-to-win mechanics, and uses non-graphic combat.
 
-**Status:** Phases 0–4 are implemented: the foundation, the server-authoritative combat slice, the economy and collection layer, and the social hub. The hub phase adds the tutorial, Team Deathmatch, casual duels and map voting, across five buildable places. Their rules pass the automated suite. It has **not yet been playtested in Roblox Studio**. See [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md).
+**Status:** Phases 0–5 are implemented: the foundation, the combat slice, economy and collection, the hub with its tutorial and casual modes, and multiplayer infrastructure. That last phase adds matchmaking, parties, reserved servers, reconnection, private matches and remapping. Their rules pass the automated suite. It has **not yet been playtested in Roblox Studio**. See [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md).
 
 ## Quick start
 
